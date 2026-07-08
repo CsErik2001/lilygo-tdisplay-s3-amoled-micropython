@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Build output
+builder/build-out/
+
+# MicroPython device files — copy these manually as needed
+*.bin
+!tools/*.bin
+!firmware/*.bin
