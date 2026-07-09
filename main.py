@@ -25,8 +25,7 @@ def main():
     palette(display)
 
     touch = amoled.Touch()
-    print("demo ready; side button toggles display")
-    print("i2c:", [hex(addr) for addr in amoled.scan_i2c()])
+    print("ready")
 
     screen_on = True
     last_home = time.ticks_ms()
