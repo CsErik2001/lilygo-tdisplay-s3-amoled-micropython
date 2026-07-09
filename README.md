@@ -77,7 +77,7 @@ d.draw_image("raw.bin", x, y, w, h)    # raw RGB565, no header
 d.brightness(0..255)
 d.sleep()
 d.wake()
-d.rotation(0..3)
+d.rotation(0..2)
 d.width()
 d.height()
 ```
@@ -98,7 +98,7 @@ RGB565 formula: `((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)`
 
 ```python
 t = amoled.Touch()
-t.read()      # None or (x, y, event)
+t.read()      # None or display-rotation-adjusted (x, y, event)
 t.touched()   # IRQ state
 t.raw()       # raw CST816 register bytes
 t.home()      # orange side touch button
