@@ -32,6 +32,7 @@
 #include <string.h>
 #include "rm67162.h"
 #include "cst816.h"
+#include "pcf85063.h"
 
 // ---------------------------------------------------------------------
 // Display
@@ -374,6 +375,86 @@ MP_DEFINE_CONST_OBJ_TYPE(
     );
 
 // ---------------------------------------------------------------------
+// RTC
+// ---------------------------------------------------------------------
+
+typedef struct _amoled_rtc_obj_t {
+    mp_obj_base_t base;
+} amoled_rtc_obj_t;
+
+static mp_obj_t rtc_make_new(const mp_obj_type_t *type, size_t n_args,
+                              size_t n_kw, const mp_obj_t *args) {
+    (void)n_args; (void)n_kw; (void)args;
+    amoled_rtc_obj_t *self = mp_obj_malloc(amoled_rtc_obj_t, type);
+    esp_err_t err = pcf85063_init();
+    if (err != ESP_OK) {
+        mp_raise_OSError(err);
+    }
+    return MP_OBJ_FROM_PTR(self);
+}
+
+static mp_obj_t rtc_datetime(size_t n_args, const mp_obj_t *args) {
+    if (n_args == 1) {
+        pcf85063_datetime_t dt;
+        if (!pcf85063_get_datetime(&dt)) {
+            mp_raise_OSError(EIO);
+        }
+        mp_obj_t tuple[8] = {
+            mp_obj_new_int(dt.year),
+            mp_obj_new_int(dt.month),
+            mp_obj_new_int(dt.day),
+            mp_obj_new_int(dt.weekday),
+            mp_obj_new_int(dt.hour),
+            mp_obj_new_int(dt.minute),
+            mp_obj_new_int(dt.second),
+            MP_OBJ_NEW_SMALL_INT(0),
+        };
+        return mp_obj_new_tuple(8, tuple);
+    }
+
+    mp_obj_t *items;
+    mp_obj_get_array_fixed_n(args[1], 8, &items);
+    pcf85063_datetime_t dt = {
+        .year = (uint16_t)mp_obj_get_int(items[0]),
+        .month = (uint8_t)mp_obj_get_int(items[1]),
+        .day = (uint8_t)mp_obj_get_int(items[2]),
+        .weekday = (uint8_t)mp_obj_get_int(items[3]),
+        .hour = (uint8_t)mp_obj_get_int(items[4]),
+        .minute = (uint8_t)mp_obj_get_int(items[5]),
+        .second = (uint8_t)mp_obj_get_int(items[6]),
+    };
+    esp_err_t err = pcf85063_set_datetime(&dt);
+    if (err == ESP_ERR_INVALID_ARG) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid datetime"));
+    }
+    if (err != ESP_OK) {
+        mp_raise_OSError(err);
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(rtc_datetime_obj, 1, 2, rtc_datetime);
+
+static mp_obj_t rtc_is_valid(mp_obj_t self_in) {
+    (void)self_in;
+    return mp_obj_new_bool(pcf85063_is_valid());
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(rtc_is_valid_obj, rtc_is_valid);
+
+static const mp_rom_map_elem_t rtc_locals_dict_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_datetime), MP_ROM_PTR(&rtc_datetime_obj) },
+    { MP_ROM_QSTR(MP_QSTR_is_valid), MP_ROM_PTR(&rtc_is_valid_obj) },
+};
+static MP_DEFINE_CONST_DICT(rtc_locals_dict, rtc_locals_dict_table);
+
+MP_DEFINE_CONST_OBJ_TYPE(
+    amoled_rtc_type,
+    MP_QSTR_RTC,
+    MP_TYPE_FLAG_NONE,
+    make_new, rtc_make_new,
+    locals_dict, &rtc_locals_dict
+    );
+
+// ---------------------------------------------------------------------
 // Module
 // ---------------------------------------------------------------------
 
@@ -392,6 +473,7 @@ static const mp_rom_map_elem_t amoled_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_amoled) },
     { MP_ROM_QSTR(MP_QSTR_Display),  MP_ROM_PTR(&amoled_display_type) },
     { MP_ROM_QSTR(MP_QSTR_Touch),    MP_ROM_PTR(&amoled_touch_type) },
+    { MP_ROM_QSTR(MP_QSTR_RTC),      MP_ROM_PTR(&amoled_rtc_type) },
     { MP_ROM_QSTR(MP_QSTR_scan_i2c),  MP_ROM_PTR(&module_scan_i2c_obj) },
     { MP_ROM_QSTR(MP_QSTR_WIDTH),     MP_ROM_INT(RM67162_WIDTH) },
     { MP_ROM_QSTR(MP_QSTR_HEIGHT),    MP_ROM_INT(RM67162_HEIGHT) },

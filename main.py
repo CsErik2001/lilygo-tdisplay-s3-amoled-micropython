@@ -12,6 +12,9 @@ COLORS = [0xF800, 0x07E0, 0x001F, 0xFFE0, 0xF81F, 0x07FF, WHITE]
 W = amoled.WIDTH
 H = amoled.HEIGHT
 
+TIME_X = 6
+TIME_Y = 6
+
 BAR_Y = 200
 BAR_H = 40
 SWATCH_W = 55
@@ -56,9 +59,28 @@ def draw_bar(display, color_idx):
     draw_clear_btn(display, False)
 
 
-def clear_drawing(display):
+def format_datetime(rtc):
+    if rtc is None:
+        return "--.-- --:--:--"
+
+    try:
+        year, month, day, weekday, hour, minute, second, subsecond = rtc.datetime()
+    except OSError as exc:
+        print("rtc read failed", exc)
+        return "--.-- --:--:--"
+
+    return "{:02d}.{:02d} {:02d}:{:02d}:{:02d}".format(
+        month, day, hour, minute, second
+    )
+
+
+def draw_datetime(display, rtc):
+    display.text(format_datetime(rtc), TIME_X, TIME_Y, WHITE, 1, BLACK)
+
+
+def clear_drawing(display, rtc):
     display.fill_rect(0, 0, W - 1, BAR_Y - 2, BLACK)
-    display.text("LilyGo AMOLED", 6, 6, 0xFFFF, 1)
+    draw_datetime(display, rtc)
     display.line(0, BAR_Y - 1, W - 1, BAR_Y - 1, 0x4208)
     print("cleared")
 
@@ -67,7 +89,14 @@ def main():
     display = amoled.Display()
     display.brightness(220)
     display.clear(BLACK)
-    display.text("LilyGo AMOLED", 6, 6, 0xFFFF, 1)
+
+    try:
+        rtc = amoled.RTC()
+    except OSError as exc:
+        rtc = None
+        print("rtc unavailable", exc)
+
+    draw_datetime(display, rtc)
 
     touch = amoled.Touch()
     print("ready")
@@ -78,6 +107,7 @@ def main():
     screen_on = True
     last_home = time.ticks_ms()
     last_tap = time.ticks_ms()
+    last_clock = time.ticks_ms()
 
     while True:
         if touch.home() and time.ticks_diff(time.ticks_ms(), last_home) > 500:
@@ -97,6 +127,11 @@ def main():
             time.sleep_ms(30)
             continue
 
+        now = time.ticks_ms()
+        if time.ticks_diff(now, last_clock) >= 1000:
+            draw_datetime(display, rtc)
+            last_clock = now
+
         point = touch.read()
         if point and time.ticks_diff(time.ticks_ms(), last_tap) > 50:
             x, y, event = point
@@ -114,7 +149,7 @@ def main():
                 else:
                     cx0, cy0, cx1, cy1 = item_rect(N_COLORS)
                     if cx0 <= x <= cx1 and cy0 <= y <= cy1:
-                        clear_drawing(display)
+                        clear_drawing(display, rtc)
             else:
                 bs = 4
                 display.fill_rect(x - bs, y - bs, x + bs, y + bs, COLORS[color_idx])
