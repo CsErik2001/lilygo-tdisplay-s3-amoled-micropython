@@ -28,6 +28,7 @@
 
 static spi_device_handle_t s_spi;
 static bool s_initialized;
+static uint8_t s_rotation;
 static uint8_t s_madctl = MADCTL_MX | MADCTL_MV | MADCTL_RGB;
 static uint16_t s_width = RM67162_WIDTH;
 static uint16_t s_height = RM67162_HEIGHT;
@@ -197,7 +198,11 @@ esp_err_t rm67162_init(void)
 
 void rm67162_set_rotation(uint8_t r)
 {
-    switch (r & 0x03) {
+    if (r > 2) {
+        return;
+    }
+    s_rotation = r;
+    switch (s_rotation) {
         case 0:
             s_madctl = MADCTL_MX | MADCTL_MV | MADCTL_RGB;
             s_width = RM67162_WIDTH;
@@ -213,13 +218,13 @@ void rm67162_set_rotation(uint8_t r)
             s_width = RM67162_WIDTH;
             s_height = RM67162_HEIGHT;
             break;
-        case 3:
-            s_madctl = MADCTL_MX | MADCTL_MY | MADCTL_RGB;
-            s_width = RM67162_HEIGHT;
-            s_height = RM67162_WIDTH;
-            break;
     }
     reg_write(0x36, &s_madctl, 1);
+}
+
+uint8_t rm67162_get_rotation(void)
+{
+    return s_rotation;
 }
 
 uint16_t rm67162_get_width(void)

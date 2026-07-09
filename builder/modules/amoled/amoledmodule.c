@@ -54,7 +54,11 @@ static mp_obj_t display_make_new(const mp_obj_type_t *type, size_t n_args,
 
 static mp_obj_t display_rotation(mp_obj_t self_in, mp_obj_t r_in) {
     (void)self_in;
-    rm67162_set_rotation((uint8_t)mp_obj_get_int(r_in));
+    int rotation = mp_obj_get_int(r_in);
+    if (rotation < 0 || rotation > 2) {
+        mp_raise_ValueError(MP_ERROR_TEXT("rotation must be 0, 1, or 2"));
+    }
+    rm67162_set_rotation((uint8_t)rotation);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(display_rotation_obj, display_rotation);
@@ -91,6 +95,24 @@ static mp_obj_t display_height(mp_obj_t self_in) {
     return mp_obj_new_int(rm67162_get_height());
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(display_height_obj, display_height);
+
+static void touch_apply_display_rotation(cst816_point_t *p) {
+    uint16_t x = p->x;
+    uint16_t y = p->y;
+
+    switch (rm67162_get_rotation()) {
+        case 1:
+            p->x = (RM67162_HEIGHT - 1) - y;
+            p->y = x;
+            break;
+        case 2:
+            p->x = (RM67162_WIDTH - 1) - x;
+            p->y = (RM67162_HEIGHT - 1) - y;
+            break;
+        default:
+            break;
+    }
+}
 
 static mp_obj_t display_clear(size_t n_args, const mp_obj_t *args) {
     (void)n_args;
@@ -303,6 +325,7 @@ static mp_obj_t touch_read(mp_obj_t self_in) {
     if (!cst816_read(&p)) {
         return mp_const_none;
     }
+    touch_apply_display_rotation(&p);
     mp_obj_t tuple[3] = {
         mp_obj_new_int(p.x),
         mp_obj_new_int(p.y),

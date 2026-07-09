@@ -9,6 +9,7 @@ esp_err_t rm67162_init(void);
 // Set MADCTL-based rotation. The default LilyGO orientation is rotation 0:
 // 536x240 landscape, matching the CST816 touch coordinate system.
 void rm67162_set_rotation(uint8_t r);
+uint8_t rm67162_get_rotation(void);
 uint16_t rm67162_get_width(void);
 uint16_t rm67162_get_height(void);
 
