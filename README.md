@@ -67,7 +67,7 @@ d.clear(color)                         # fill entire screen
 d.pixel(x, y, color)                   # single pixel
 d.line(x0, y0, x1, y1, color)          # line
 d.rect(x0, y0, x1, y1, color)          # empty rectangle (absolute coords)
-d.fill_rect(x0, y0, x1, y1, color)     # filled rectangle (absolute coords)
+d.fill_rect(x0, y0, x1, y1, color)     # filled rectangle, clipped to display
 d.text("HELLO", x, y, color)           # 5×7 font, transparent background
 d.text("HELLO", x, y, color, scale)    # scaled
 d.text("HELLO", x, y, color, scale, bg)# with background color, RGB565

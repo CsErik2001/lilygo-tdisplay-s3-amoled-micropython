@@ -20,8 +20,9 @@ void rm67162_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
 // rm67162_set_window first.
 void rm67162_push_pixels(const uint16_t *data, uint32_t len);
 
-// Convenience: fill a rectangle with a single RGB565 color.
-void rm67162_fill_rect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
+// Convenience: fill a rectangle with a single RGB565 color. Coordinates are
+// clipped to the visible display; fully off-screen rectangles are ignored.
+void rm67162_fill_rect(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color);
 
 void rm67162_draw_pixel(int16_t x, int16_t y, uint16_t color);
 void rm67162_draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_t color);

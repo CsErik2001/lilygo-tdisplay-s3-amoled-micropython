@@ -264,15 +264,41 @@ void rm67162_push_pixels(const uint16_t *data, uint32_t len)
     cs_high();
 }
 
-void rm67162_fill_rect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color)
+void rm67162_fill_rect(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color)
 {
+    if (x1 < x0) {
+        int32_t t = x0;
+        x0 = x1;
+        x1 = t;
+    }
+    if (y1 < y0) {
+        int32_t t = y0;
+        y0 = y1;
+        y1 = t;
+    }
+    if (x1 < 0 || y1 < 0 || x0 >= s_width || y0 >= s_height) {
+        return;
+    }
+    if (x0 < 0) {
+        x0 = 0;
+    }
+    if (y0 < 0) {
+        y0 = 0;
+    }
+    if (x1 >= s_width) {
+        x1 = s_width - 1;
+    }
+    if (y1 >= s_height) {
+        y1 = s_height - 1;
+    }
+
     uint16_t buf[SEND_BUF_PIXELS];
     uint32_t total = (uint32_t)(x1 - x0 + 1) * (y1 - y0 + 1);
     uint32_t chunk = total < SEND_BUF_PIXELS ? total : SEND_BUF_PIXELS;
     for (uint32_t i = 0; i < chunk; i++) {
         buf[i] = color;
     }
-    rm67162_set_window(x0, y0, x1, y1);
+    rm67162_set_window((uint16_t)x0, (uint16_t)y0, (uint16_t)x1, (uint16_t)y1);
     uint32_t remaining = total;
     while (remaining > 0) {
         uint32_t n = remaining < SEND_BUF_PIXELS ? remaining : SEND_BUF_PIXELS;

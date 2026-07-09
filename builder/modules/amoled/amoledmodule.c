@@ -155,8 +155,8 @@ static mp_obj_t display_fill_rect(size_t n_args, const mp_obj_t *args) {
     // self, x0, y0, x1, y1, color
     (void)n_args;
     rm67162_fill_rect(
-        (uint16_t)mp_obj_get_int(args[1]), (uint16_t)mp_obj_get_int(args[2]),
-        (uint16_t)mp_obj_get_int(args[3]), (uint16_t)mp_obj_get_int(args[4]),
+        mp_obj_get_int(args[1]), mp_obj_get_int(args[2]),
+        mp_obj_get_int(args[3]), mp_obj_get_int(args[4]),
         (uint16_t)mp_obj_get_int(args[5]));
     return mp_const_none;
 }
@@ -179,11 +179,15 @@ static mp_obj_t display_blit(size_t n_args, const mp_obj_t *args) {
     (void)n_args;
     mp_buffer_info_t buf;
     mp_get_buffer_raise(args[1], &buf, MP_BUFFER_READ);
-    uint16_t x0 = (uint16_t)mp_obj_get_int(args[2]);
-    uint16_t y0 = (uint16_t)mp_obj_get_int(args[3]);
-    uint16_t x1 = (uint16_t)mp_obj_get_int(args[4]);
-    uint16_t y1 = (uint16_t)mp_obj_get_int(args[5]);
-    rm67162_set_window(x0, y0, x1, y1);
+    int x0 = mp_obj_get_int(args[2]);
+    int y0 = mp_obj_get_int(args[3]);
+    int x1 = mp_obj_get_int(args[4]);
+    int y1 = mp_obj_get_int(args[5]);
+    if (x1 < x0 || y1 < y0 || x0 < 0 || y0 < 0 ||
+        x1 >= rm67162_get_width() || y1 >= rm67162_get_height()) {
+        mp_raise_ValueError(MP_ERROR_TEXT("blit outside display"));
+    }
+    rm67162_set_window((uint16_t)x0, (uint16_t)y0, (uint16_t)x1, (uint16_t)y1);
     rm67162_push_pixels((const uint16_t *)buf.buf, buf.len / 2);
     return mp_const_none;
 }

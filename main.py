@@ -70,8 +70,7 @@ def main():
     display.text("LilyGo AMOLED", 6, 6, 0xFFFF, 1)
 
     touch = amoled.Touch()
-    print("demo ready")
-    print("i2c:", [hex(addr) for addr in amoled.scan_i2c()])
+    print("ready")
 
     color_idx = 0
     draw_bar(display, color_idx)
