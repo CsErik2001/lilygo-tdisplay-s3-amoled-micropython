@@ -2,7 +2,7 @@
 # custom RM67162 + CST816 "amoled" usermod baked in.
 #
 # Build:
-#   docker build -t tdisplay-s3-amoled-mpy .
+#   docker build -f builder/Dockerfile -t tdisplay-s3-amoled-mpy .
 #
 # Extract firmware.bin (and micropython.bin/bootloader/partitions if you
 # want to flash by hand instead of via `idf.py -p PORT flash`):
@@ -37,13 +37,17 @@ RUN cd ${MICROPY_DIR}/ports/esp32 && \
     /bin/bash -c "source \$IDF_PATH/export.sh && make submodules"
 
 # Drop in our board definition and usermod source tree.
-COPY boards/LILYGO_TDISPLAY_S3_AMOLED_PLUS \
+COPY builder/boards/LILYGO_TDISPLAY_S3_AMOLED_PLUS \
      ${MICROPY_DIR}/ports/esp32/boards/LILYGO_TDISPLAY_S3_AMOLED_PLUS
-COPY modules/amoled ${MICROPY_DIR}/ports/esp32/modules/amoled
+COPY builder/modules/amoled ${MICROPY_DIR}/ports/esp32/modules/amoled
+
+# Freeze the repository's UI module through the board manifest.
+COPY amoled_ui.py \
+     ${MICROPY_DIR}/ports/esp32/boards/LILYGO_TDISPLAY_S3_AMOLED_PLUS/modules/amoled_ui.py
 
 WORKDIR ${MICROPY_DIR}/ports/esp32
 
-COPY docker/entrypoint.sh /entrypoint.sh
+COPY builder/docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["build"]

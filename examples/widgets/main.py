@@ -49,7 +49,40 @@ screen.add(
     )
 )
 
-keyboard = ui.Keyboard(x=0, y=72, width=amoled.WIDTH, height=168)
+screen.add(
+    ui.Switch(
+        "Online",
+        x=380,
+        y=72,
+        value=True,
+        on_change=lambda value: status.set_text("Online" if value else "Offline"),
+    )
+)
+
+screen.add(
+    ui.Checkbox(
+        "Remember",
+        x=380,
+        y=106,
+        checked=True,
+    )
+)
+
+screen.add(ui.Label("Brightness", x=380, y=142, width=144))
+screen.add(
+    ui.Slider(
+        x=380,
+        y=160,
+        width=144,
+        min_value=20,
+        max_value=255,
+        value=220,
+        step=5,
+        on_change=display.brightness,
+    )
+)
+
+keyboard = ui.Keyboard(x=0, y=72, width=368, height=168)
 screen.set_keyboard(keyboard)
 screen.set_focus(name)
 screen.run()

@@ -6,9 +6,10 @@ with RM67162 display and CST816T touch drivers as a built-in `amoled` module.
 ## Contents
 
 - `firmware/firmware.bin` — pre-built flashable MicroPython firmware
-- `main.py` — demo: touch drawing palette + side button display on/off
+- `examples/draw/main.py` — touch drawing palette demo
 - `amoled_ui.py` — lightweight touch UI widgets
-- `examples/ui_demo.py` — title, text input, keyboard, and button demo
+- `examples/widgets/main.py` — title, text input, keyboard, and button demo
+- `examples/wifi/` — Wi-Fi selection and password-entry demo
 - `builder/` — Docker-based firmware builder and C driver sources
 - `tools/image_to_bin.py` — PNG/JPG → AMG0 RGB565 converter for fast `draw_image()`
 
@@ -28,16 +29,25 @@ esptool --chip esp32s3 -p /dev/cu.usbmodem101 -b 460800 --before default-reset \
   0x0 firmware/firmware.bin
 
 # Upload the demo and reset
-mpremote connect /dev/cu.usbmodem101 cp main.py :main.py
+mpremote connect /dev/cu.usbmodem101 cp examples/draw/main.py :main.py
 mpremote connect /dev/cu.usbmodem101 reset
 ```
 
 To try the widget demo instead:
 
 ```bash
-mpremote connect /dev/cu.usbmodem101 cp amoled_ui.py :amoled_ui.py
-mpremote connect /dev/cu.usbmodem101 cp examples/ui_demo.py :main.py
+mpremote connect /dev/cu.usbmodem101 cp examples/widgets/main.py :main.py
 mpremote connect /dev/cu.usbmodem101 reset
+```
+
+`amoled_ui` is frozen into the firmware, so it does not need to be copied to
+the device filesystem.
+
+After upgrading from an older setup, remove any filesystem copy because it
+takes precedence over the frozen module:
+
+```bash
+mpremote connect /dev/cu.usbmodem101 rm :amoled_ui.py
 ```
 
 If the port differs:
@@ -53,7 +63,7 @@ esptool --chip esp32s3 -p /dev/cu.usbmodem101 erase-flash
 
 ## Demo
 
-`main.py` boots into a touch drawing app:
+`examples/draw/main.py` boots into a touch drawing app:
 
 - Touch the color palette at the top to switch colors
 - Touch below the palette to draw 9×9 blocks
@@ -194,10 +204,30 @@ screen.add(
     )
 )
 
-screen.set_keyboard(
-    ui.Keyboard(x=0, y=72, width=amoled.WIDTH, height=168)
+screen.add(
+    ui.Switch("WiFi", x=350, y=36, value=True)
 )
-screen.set_focus(name)
+
+screen.add(
+    ui.Checkbox("Remember", x=350, y=70, checked=True)
+)
+
+screen.add(
+    ui.Slider(
+        x=350,
+        y=108,
+        width=160,
+        min_value=0,
+        max_value=255,
+        value=128,
+        step=5,
+        on_change=display.brightness,
+    )
+)
+
+screen.set_keyboard(
+    ui.Keyboard(x=0, y=72, width=330, height=168)
+)
 screen.run()
 ```
 
@@ -205,10 +235,23 @@ Available controls:
 
 - `Label` and `Title` for opaque, updateable text
 - `Button` with pressed, disabled, and callback states
+- `Checkbox` for labelled boolean choices
+- `Switch` for compact on/off settings
+- `Slider` with value limits, step rounding, and drag callbacks
 - `TextInput` with placeholder, cursor, maximum length, and callbacks
-- `Keyboard` with letters, digits, space, backspace, and done keys
+- `Keyboard` with larger ABC keys and a separate `123` number mode
 - `Theme` for shared colors, spacing, and control styling
 - `Screen` for focus, touch dispatch, and dirty rendering
+
+Tap `123` to replace the letter layout with large number keys, then tap `ABC`
+to return to letters. Both layouts keep backspace and done available.
+
+The keyboard opens automatically when a `TextInput` receives focus. The input
+and the nearest action button keep their original x positions and move to the
+temporary action bar at `y=8`; other widgets are hidden while the keyboard uses
+the rest of the display. Tapping `DONE` or outside restores every widget's
+original position, size, and visibility. Use `action_bar_y` on `Screen` to
+change the action bar position.
 
 The UI stays in Python so it can be uploaded independently from the firmware.
 Rendering remains native because each widget uses the existing C display API.

@@ -3,8 +3,12 @@
 set -e
 
 IMG=tdisplay-s3-amoled-mpy
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-docker build -t "$IMG" .
+cd "$SCRIPT_DIR"
+
+docker build -f "$SCRIPT_DIR/Dockerfile" -t "$IMG" "$REPO_ROOT"
 
 docker rm -f amoled-build 2>/dev/null || true
 
