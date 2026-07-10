@@ -107,6 +107,18 @@ t.home()      # orange side touch button
 The orange circle on the right edge of the display is not a GPIO button — it is
 a capacitive "home" area on the CST816T. Use `touch.home()` to detect it.
 
+### External RTC
+
+```python
+rtc = amoled.RTC()
+rtc.datetime()                         # (year, month, day, weekday, hour, minute, second, 0)
+rtc.datetime((2026, 7, 9, 3, 12, 50, 0, 0))
+rtc.is_valid()                         # False if the RTC oscillator/voltage flag is set
+```
+
+The external RTC is a PCF85063-compatible chip at I2C address `0x51`. Its
+datetime registers start at `0x04`, not the PCF8563 `0x02` offset.
+
 ### Display on/off with the side button
 
 ```python
@@ -188,6 +200,8 @@ Output: `builder/build-out/firmware.bin`
 ```
 builder/modules/amoled/rm67162.c      # display driver
 builder/modules/amoled/cst816.c       # touch driver
+builder/modules/amoled/pcf85063.c     # external RTC driver
+builder/modules/amoled/amoled_i2c.c   # shared I2C bus helper
 builder/modules/amoled/amoledmodule.c # MicroPython binding
 builder/modules/amoled/board_pins.h   # pin mapping
 ```
