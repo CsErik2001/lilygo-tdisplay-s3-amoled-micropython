@@ -2,12 +2,21 @@ import time
 
 import amoled
 
-BLACK = 0x0000
-WHITE = 0xFFFF
-GRAY = 0x8410
-CLR_BG = 0x4228
+BLACK = amoled.rgb(0, 0, 0)
+WHITE = amoled.rgb(255, 255, 255)
+GRAY = amoled.rgb(128, 128, 128)
+CLR_BG = amoled.rgb(64, 64, 64)
+BAR_BG = amoled.rgb(32, 32, 64)
 
-COLORS = [0xF800, 0x07E0, 0x001F, 0xFFE0, 0xF81F, 0x07FF, WHITE]
+COLORS = [
+    amoled.rgb(255, 0, 0),
+    amoled.rgb(0, 255, 0),
+    amoled.rgb(0, 0, 255),
+    amoled.rgb(255, 255, 0),
+    amoled.rgb(255, 0, 255),
+    amoled.rgb(0, 255, 255),
+    WHITE,
+]
 
 W = amoled.WIDTH
 H = amoled.HEIGHT
@@ -44,7 +53,7 @@ def draw_color_swatch(display, idx, highlight):
 
 def draw_clear_btn(display, highlight):
     x0, y0, x1, y1 = item_rect(N_COLORS)
-    display.fill_rect(x0, y0, x1, y1, 0xF800 if highlight else CLR_BG)
+    display.fill_rect(x0, y0, x1, y1, COLORS[0] if highlight else CLR_BG)
     display.rect(x0, y0, x1, y1, GRAY)
     tx = x0 + (SWATCH_W - 3 * 5) // 2
     ty = y0 + (SWATCH_H - 7) // 2
@@ -52,8 +61,8 @@ def draw_clear_btn(display, highlight):
 
 
 def draw_bar(display, color_idx):
-    display.fill_rect(0, BAR_Y, W - 1, H - 1, 0x2108)
-    display.line(0, BAR_Y - 1, W - 1, BAR_Y - 1, 0x4208)
+    display.fill_rect(0, BAR_Y, W - 1, H - 1, BAR_BG)
+    display.line(0, BAR_Y - 1, W - 1, BAR_Y - 1, CLR_BG)
     for i in range(N_COLORS):
         draw_color_swatch(display, i, i == color_idx)
     draw_clear_btn(display, False)
@@ -81,7 +90,7 @@ def draw_datetime(display, rtc):
 def clear_drawing(display, rtc):
     display.fill_rect(0, 0, W - 1, BAR_Y - 2, BLACK)
     draw_datetime(display, rtc)
-    display.line(0, BAR_Y - 1, W - 1, BAR_Y - 1, 0x4208)
+    display.line(0, BAR_Y - 1, W - 1, BAR_Y - 1, CLR_BG)
     print("cleared")
 
 
