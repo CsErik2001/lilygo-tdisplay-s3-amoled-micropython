@@ -7,6 +7,8 @@ with RM67162 display and CST816T touch drivers as a built-in `amoled` module.
 
 - `firmware/firmware.bin` — pre-built flashable MicroPython firmware
 - `main.py` — demo: touch drawing palette + side button display on/off
+- `amoled_ui.py` — lightweight touch UI widgets
+- `examples/ui_demo.py` — title, text input, keyboard, and button demo
 - `builder/` — Docker-based firmware builder and C driver sources
 - `tools/image_to_bin.py` — PNG/JPG → AMG0 RGB565 converter for fast `draw_image()`
 
@@ -27,6 +29,14 @@ esptool --chip esp32s3 -p /dev/cu.usbmodem101 -b 460800 --before default-reset \
 
 # Upload the demo and reset
 mpremote connect /dev/cu.usbmodem101 cp main.py :main.py
+mpremote connect /dev/cu.usbmodem101 reset
+```
+
+To try the widget demo instead:
+
+```bash
+mpremote connect /dev/cu.usbmodem101 cp amoled_ui.py :amoled_ui.py
+mpremote connect /dev/cu.usbmodem101 cp examples/ui_demo.py :main.py
 mpremote connect /dev/cu.usbmodem101 reset
 ```
 
@@ -148,6 +158,60 @@ while True:
 ```
 
 The 500 ms debounce prevents rapid on/off cycling from a single long touch.
+
+## UI widgets
+
+`amoled_ui.py` provides reusable controls while keeping all pixel drawing in
+the native `amoled` module. Widgets redraw only after their state changes.
+
+```python
+import amoled
+import amoled_ui as ui
+
+display = amoled.Display()
+touch = amoled.Touch()
+screen = ui.Screen(display, touch)
+
+screen.add(ui.Title("Settings", x=10, y=8))
+
+name = screen.add(
+    ui.TextInput(
+        x=10,
+        y=36,
+        width=220,
+        placeholder="Name",
+    )
+)
+
+screen.add(
+    ui.Button(
+        "Save",
+        x=244,
+        y=36,
+        width=90,
+        height=28,
+        on_click=lambda: print(name.value),
+    )
+)
+
+screen.set_keyboard(
+    ui.Keyboard(x=0, y=72, width=amoled.WIDTH, height=168)
+)
+screen.set_focus(name)
+screen.run()
+```
+
+Available controls:
+
+- `Label` and `Title` for opaque, updateable text
+- `Button` with pressed, disabled, and callback states
+- `TextInput` with placeholder, cursor, maximum length, and callbacks
+- `Keyboard` with letters, digits, space, backspace, and done keys
+- `Theme` for shared colors, spacing, and control styling
+- `Screen` for focus, touch dispatch, and dirty rendering
+
+The UI stays in Python so it can be uploaded independently from the firmware.
+Rendering remains native because each widget uses the existing C display API.
 
 ## Displaying images from `.bin` files
 

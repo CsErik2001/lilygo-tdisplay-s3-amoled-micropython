@@ -17,11 +17,15 @@
 # Pin an ESP-IDF version known to work with recent MicroPython ESP32 ports.
 # Check micropython/ports/esp32/README.md in the tag you use below for the
 # exact recommended IDF version and bump this if it differs.
-ARG IDF_VERSION=v5.2.2
+ARG IDF_VERSION=v5.5.1
 FROM espressif/idf:${IDF_VERSION}
 
-ARG MICROPYTHON_REF=v1.24.1
+ARG MICROPYTHON_REF=v1.28.0
 ENV MICROPY_DIR=/opt/micropython
+
+# The official IDF v5.5.1 image omits this empty directory, but its CMake
+# configuration still lists it as a public include path for ESP32-S3 builds.
+RUN mkdir -p ${IDF_PATH}/components/esp_hw_support/mspi_timing_tuning/port/esp32s3/include
 
 RUN git clone --depth 1 --branch ${MICROPYTHON_REF} \
         https://github.com/micropython/micropython.git ${MICROPY_DIR}
