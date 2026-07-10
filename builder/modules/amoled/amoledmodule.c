@@ -14,7 +14,7 @@
  *     d = amoled.Display()
  *     d.rotation(1)
  *     d.brightness(200)
- *     d.fill_rect(0, 0, 239, 535, 0xF800)   # RGB565 red
+ *     d.fill_rect(0, 0, 239, 535, amoled.rgb(255, 0, 0))
  *
  *     t = amoled.Touch()
  *     p = t.read()
@@ -458,6 +458,21 @@ MP_DEFINE_CONST_OBJ_TYPE(
 // Module
 // ---------------------------------------------------------------------
 
+static mp_obj_t module_rgb(mp_obj_t r_in, mp_obj_t g_in, mp_obj_t b_in) {
+    int r = mp_obj_get_int(r_in);
+    int g = mp_obj_get_int(g_in);
+    int b = mp_obj_get_int(b_in);
+    if ((unsigned int)r > 255 || (unsigned int)g > 255 || (unsigned int)b > 255) {
+        mp_raise_ValueError(MP_ERROR_TEXT("RGB values must be 0..255"));
+    }
+
+    uint16_t color = (uint16_t)(((r & 0xf8) << 8) |
+                                ((g & 0xfc) << 3) |
+                                (b >> 3));
+    return mp_obj_new_int(color);
+}
+static MP_DEFINE_CONST_FUN_OBJ_3(module_rgb_obj, module_rgb);
+
 static mp_obj_t module_scan_i2c(void) {
     uint8_t addrs[16];
     uint32_t count = cst816_scan(addrs, sizeof(addrs));
@@ -474,6 +489,7 @@ static const mp_rom_map_elem_t amoled_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_Display),  MP_ROM_PTR(&amoled_display_type) },
     { MP_ROM_QSTR(MP_QSTR_Touch),    MP_ROM_PTR(&amoled_touch_type) },
     { MP_ROM_QSTR(MP_QSTR_RTC),      MP_ROM_PTR(&amoled_rtc_type) },
+    { MP_ROM_QSTR(MP_QSTR_rgb),       MP_ROM_PTR(&module_rgb_obj) },
     { MP_ROM_QSTR(MP_QSTR_scan_i2c),  MP_ROM_PTR(&module_scan_i2c_obj) },
     { MP_ROM_QSTR(MP_QSTR_WIDTH),     MP_ROM_INT(RM67162_WIDTH) },
     { MP_ROM_QSTR(MP_QSTR_HEIGHT),    MP_ROM_INT(RM67162_HEIGHT) },

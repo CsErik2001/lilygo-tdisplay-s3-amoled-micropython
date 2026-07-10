@@ -85,14 +85,18 @@ d.height()
 ### Colors (RGB565)
 
 ```python
-BLACK = 0x0000
-WHITE = 0xFFFF
-RED   = 0xF800
-GREEN = 0x07E0
-BLUE  = 0x001F
+BLACK = amoled.rgb(0, 0, 0)
+WHITE = amoled.rgb(255, 255, 255)
+RED   = amoled.rgb(255, 0, 0)
+GREEN = amoled.rgb(0, 255, 0)
+BLUE  = amoled.rgb(0, 0, 255)
+
+d.clear(amoled.rgb(10, 10, 10))
 ```
 
-RGB565 formula: `((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)`
+`amoled.rgb(r, g, b)` accepts standard `0..255` RGB values and returns the
+RGB565 integer used by the display methods. Values outside this range raise
+`ValueError`.
 
 ### Touch
 
