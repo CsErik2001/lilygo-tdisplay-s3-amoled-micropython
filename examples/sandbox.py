@@ -11,7 +11,7 @@ def main():
     display = amoled.Display()
     display.brightness(220)
     touch = amoled.Touch()
-    screen = ui.Screen(display, touch, action_bar_y=0)
+    screen = ui.Screen(display, touch, action_bar_y=2)
 
     screen.add(ui.Title("Widget Playground", x=10, y=8))
     screen.add(ui.Label("Slider, Checkbox, Switch, Keyboard", x=10, y=34, color=screen.theme.muted))
@@ -39,7 +39,8 @@ def main():
         sw_label.set_text("on" if v else "off"),
     )))
 
-    inp = screen.add(ui.TextInput(x=10, y=170, width=W - 20, height=24, placeholder="Tap to type", max_length=20, scale=2))
+    screen.add(ui.ProgressBar(x=10, y=162, width=W - 20, value=64))
+    inp = screen.add(ui.TextInput(x=10, y=174, width=W - 20, height=24, placeholder="Tap to type", max_length=20, scale=2))
     kb = ui.Keyboard(x=0, y=194, width=W, height=amoled.HEIGHT - 194)
     screen.set_keyboard(kb)
 

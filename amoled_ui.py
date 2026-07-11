@@ -696,6 +696,52 @@ class Slider(Widget):
             self.dragging = False
 
 
+class ProgressBar(Widget):
+    """Horizontal progress bar with a centered percentage label."""
+
+    def __init__(
+        self, x, y, width, height=16, value=0.0, min_value=0,
+        max_value=100, color=None, background=None, visible=True,
+    ):
+        super().__init__(x, y, width, height, visible=visible)
+        if max_value <= min_value:
+            raise ValueError("max_value must be greater than min_value")
+        self.min_value = min_value
+        self.max_value = max_value
+        self.color = color
+        self.background = background
+        self.value = self._clamp(value)
+
+    def _clamp(self, value):
+        return max(self.min_value, min(self.max_value, value))
+
+    def set_value(self, value):
+        value = self._clamp(value)
+        if value != self.value:
+            self.value = value
+            self.invalidate()
+
+    def draw(self, display, theme):
+        background = theme.control if self.background is None else self.background
+        color = theme.accent if self.color is None else self.color
+        display.fill_rect(self.x, self.y, self.x1, self.y1, background)
+
+        ratio = (self.value - self.min_value) / (
+            self.max_value - self.min_value
+        )
+        fill_width = int(self.width * ratio)
+        if fill_width > 0:
+            display.fill_rect(
+                self.x, self.y, self.x + fill_width - 1, self.y1, color
+            )
+
+        text = str(int(ratio * 100 + 0.5)) + "%"
+        text_x = self.x + max(0, (self.width - _text_width(text, 1)) // 2)
+        text_y = self.y + max(0, (self.height - 8) // 2)
+        display.text(text, text_x, text_y, theme.foreground, 1)
+        self.dirty = False
+
+
 class TextInput(Widget):
     """Single-line editable text field for use with ``Keyboard``."""
 
