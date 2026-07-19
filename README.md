@@ -1,9 +1,9 @@
 # LilyGo T-Display-S3 AMOLED Plus - MicroPython firmware
 
 Custom MicroPython 1.28.0 firmware for the LilyGo T-Display-S3 AMOLED Plus
-Touch board. It includes native RM67162 display, CST816T touch, and PCF85063
-RTC drivers in the built-in `amoled` module, plus the frozen `amoled_ui`
-widget toolkit.
+Touch board. It includes native RM67162 display, CST816T touch, PCF85063 RTC,
+and BQ25896 battery-charger drivers in the built-in `amoled` module, plus the
+frozen `amoled_ui` widget toolkit.
 
 ## Contents
 
@@ -23,6 +23,7 @@ widget toolkit.
 - Display: RM67162 AMOLED, SPI, 536 x 240
 - Touch: CST816T, I2C address `0x15`
 - External RTC: PCF85063-compatible, I2C address `0x51`
+- Battery charger/PMU: TI BQ25896, I2C address `0x6b`
 - MicroPython: `v1.28.0`
 - ESP-IDF: `v5.5.1`
 
@@ -83,7 +84,7 @@ esptool --chip esp32s3 -p /dev/cu.usbmodem101 erase-flash
 ## Native `amoled` API
 
 The built-in module exposes the display, touch controller, external RTC,
-RGB565 conversion, and shared I2C scanning:
+BQ25896 PMU, RGB565 conversion, and shared I2C scanning:
 
 ```python
 import amoled
@@ -96,11 +97,12 @@ amoled.scan_i2c()  # for example: [0x15, 0x51, 0x6b]
 display = amoled.Display()
 touch = amoled.Touch()
 rtc = amoled.RTC()
+pmu = amoled.PMU()
 ```
 
-`Display()`, `Touch()`, and `RTC()` initialize their hardware and raise
-`OSError` if initialization fails. The display uses SPI; touch and RTC share
-I2C0 at 400 kHz.
+`Display()`, `Touch()`, `RTC()`, and `PMU()` initialize their hardware and
+raise `OSError` if initialization fails. The display uses SPI; touch, RTC, and
+PMU share a mutex-protected I2C0 bus at 400 kHz.
 
 ### Display
 
@@ -187,8 +189,7 @@ d.clear(amoled.rgb(10, 10, 10))
 RGB565 integer. Values outside this range raise `ValueError`.
 
 `amoled.scan_i2c()` returns up to 16 detected 7-bit addresses from the shared
-bus. Common results are touch `0x15`, RTC `0x51`, and PMU `0x6b`. The PMU is
-detectable by the scanner but does not currently have a public `amoled` class.
+bus. Common results are touch `0x15`, RTC `0x51`, and PMU `0x6b`.
 
 ### Touch
 
@@ -240,6 +241,114 @@ ranges raise `ValueError`; I2C failures raise `OSError`.
 `is_valid()` is false when the PCF85063 oscillator-stop/voltage-low flag is
 set or the RTC cannot be read. The datetime registers begin at `0x04`, unlike
 the PCF8563 `0x02` layout.
+
+### Battery charger and PMU
+
+`amoled.PMU` controls the TI BQ25896 on the board's shared I2C bus. Creating
+the object verifies the chip identity but does not change charging or input
+settings.
+
+```python
+import amoled
+
+pmu = amoled.PMU()
+
+pmu.charging()                 # current charge-enable state
+pmu.charging(False)            # disable charging
+pmu.charging(True)             # enable charging
+
+pmu.charge_current()           # configured fast-charge current, mA
+pmu.charge_current(1000)       # sets and returns 960 mA
+pmu.charge_voltage()           # configured regulation voltage, mV
+pmu.charge_voltage(4200)       # sets and returns 4192 mV
+pmu.input_current_limit(500)   # mA
+pmu.input_voltage_limit(4500)  # mV, absolute VINDPM threshold
+
+pmu.battery_voltage()          # measured VBAT, mV
+pmu.bus_voltage()              # measured USB/VBUS, mV; 0 if absent
+pmu.system_voltage()           # measured VSYS, mV
+pmu.measured_charge_current()  # measured charging current, mA
+
+pmu.charge_status()            # not_charging/precharge/fast_charging/done
+pmu.power_status()             # source, power-good, thermal and DPM flags
+pmu.faults()                   # watchdog, boost, charge, battery and NTC faults
+```
+
+`power_status()` returns `raw`, `source`, `source_code`, `charge_status`,
+`charging`, `power_good`, `vbus_present`, `thermal_regulation`,
+`input_voltage_limited`, `input_current_limited`, and `vsys_minimum`. Source
+names are `no_input`, `usb_host_sdp`, `adapter`, `otg`, or `unknown`.
+
+`faults()` returns `raw`, `active`, `watchdog`, `boost`, `charge`,
+`charge_code`, `battery`, `ntc`, and `ntc_code`. Charge faults are `normal`,
+`input`, `thermal_shutdown`, or `safety_timer`; NTC states are `normal`,
+`warm`, `cool`, `cold`, `hot`, or `unknown`.
+
+Configuration setters validate the board-safe range, round down to the nearest
+hardware step, write the register, and return the actual value:
+
+| Setting | Accepted range | Step |
+| --- | ---: | ---: |
+| Fast-charge current | `0`, or `64..1024 mA` | `64 mA` |
+| Battery regulation voltage | `3840..4208 mV` | `16 mV` |
+| USB input-current limit | `100..1500 mA` | `50 mA` |
+| USB input-voltage limit | `3900..5500 mV` | `100 mV` |
+
+Values outside these ranges raise `ValueError`; I2C and ADC timeouts raise
+`OSError`. The BQ25896 supports higher register values, but this firmware uses
+conservative limits for the T-Display-S3 AMOLED Plus. The selected charge
+current must also be safe for the connected battery; the board cannot discover
+the battery's rated charge current.
+
+Read battery and USB voltage and inspect charging state:
+
+```python
+print("battery:", pmu.battery_voltage(), "mV")
+print("USB:", pmu.bus_voltage(), "mV")
+print("charging:", pmu.charge_status())
+print(pmu.power_status())
+```
+
+Temporarily stop charging and restore the previous state:
+
+```python
+was_enabled = pmu.charging()
+pmu.charging(False)
+# Perform the operation that requires charging to be disabled.
+pmu.charging(was_enabled)
+```
+
+Set a conservative current limit:
+
+```python
+actual_ma = pmu.charge_current(512)
+print("charge-current limit:", actual_ma, "mA")
+```
+
+An application-controlled battery-preservation mode can lower both the charge
+voltage and current, then restore the firmware's maximum board-safe values when
+full capacity is needed:
+
+```python
+# Preservation mode
+pmu.charge_voltage(4096)
+pmu.charge_current(512)
+
+# Restore maximum board-safe settings
+pmu.charge_voltage(4208)
+pmu.charge_current(1024)
+```
+
+The first voltage/current measurement can take about one second because the
+driver starts a one-shot ADC conversion. Measurements made immediately after
+it reuse that sample. `faults()` reads the BQ25896 fault register, whose latched
+flags may change after a read. The absolute input-voltage limit register is
+reset by the BQ25896 when a new input source is connected, so reapply a custom
+limit after reconnecting USB.
+
+The BQ25896 is not a fuel gauge and does not directly report battery charge
+percentage. Percentage requires voltage-based estimation or a separate fuel-
+gauge IC.
 
 ### Side-button sleep/wake
 
@@ -471,7 +580,7 @@ ui.TextInput(
     value="", placeholder="",
     on_change=None, on_submit=None, max_length=None,
     color=None, background=None, border=None,
-    scale=1, visible=True, enabled=True,
+    scale=1, visible=True, enabled=True, password=False,
 )
 
 input.set_value(value, notify=True)
@@ -483,32 +592,36 @@ input.submit()
 
 `on_change(value)` receives the new string. `on_submit(value)` runs when
 `submit()` or the keyboard's `DONE` key is used. Long values display their
-rightmost characters so newly entered text remains visible.
+rightmost characters so newly entered text remains visible. Set
+`password=True` to display the value as `*` characters.
 
 ### Keyboard
 
 ```python
 ui.Keyboard(
     x, y, width, height,
-    target=None, rows=None, number_rows=None,
+    target=None, rows=None, shifted_rows=None, number_rows=None,
     mode=ui.Keyboard.MODE_LETTERS,
     gap=2, visible=True,
 )
 
 keyboard.set_target(text_input_or_none)
 keyboard.set_mode(ui.Keyboard.MODE_NUMBERS)
-keyboard.set_letter_rows(custom_rows)
+keyboard.set_letter_rows(custom_rows, shifted_rows=custom_shifted_rows)
 keyboard.set_bounds(x, y, width, height)
 ```
 
-The default letter layout has `123`, `BKSP`, `SPACE`, `SHFT`, and `DONE` keys.
-Number mode uses larger `0..9` keys and an `ABC` key to return to letters.
+The default letter layout starts lowercase and has `123`, `BKSP`, `SPACE`,
+`LOW`/`CAPS`, and `DONE` keys. Shift switches the labels and inserted values,
+and remains highlighted until pressed again. Number mode includes digits and
+common symbols, with an `ABC` key to return to letters.
 Keyboard constants include:
 
 ```python
 ui.Keyboard.MODE_LETTERS
 ui.Keyboard.MODE_NUMBERS
 ui.Keyboard.LETTER_ROWS
+ui.Keyboard.SHIFTED_ROWS
 ui.Keyboard.NUMBER_ROWS
 ui.Keyboard.ACTION_NUMBERS
 ui.Keyboard.ACTION_LETTERS
@@ -517,8 +630,8 @@ ui.Keyboard.ACTION_DONE
 ```
 
 Custom row entries are `(label, value, weight)` tuples. Weight controls the
-relative key width. `examples/wifi/connect_wifi.py` demonstrates custom
-uppercase/lowercase rows.
+relative key width. Pass `rows` and `shifted_rows` to provide custom
+lowercase and uppercase layouts.
 
 ### Screen, focus, and keyboard popover
 
