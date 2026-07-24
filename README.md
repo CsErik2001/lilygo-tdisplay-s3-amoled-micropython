@@ -95,6 +95,8 @@ amoled.rgb(0, 180, 255)
 amoled.scan_i2c()  # for example: [0x15, 0x51, 0x6b]
 
 display = amoled.Display()
+# For screenshots, allocate an optional PSRAM-backed shadow framebuffer instead:
+# display = amoled.Display(framebuffer=True)
 touch = amoled.Touch()
 rtc = amoled.RTC()
 pmu = amoled.PMU()
@@ -102,7 +104,9 @@ pmu = amoled.PMU()
 
 `Display()`, `Touch()`, `RTC()`, and `PMU()` initialize their hardware and
 raise `OSError` if initialization fails. The display uses SPI; touch, RTC, and
-PMU share a mutex-protected I2C0 bus at 400 kHz.
+PMU share a mutex-protected I2C0 bus at 400 kHz. Enabling the display
+framebuffer requires approximately 251 KiB of PSRAM and raises `MemoryError`
+if that allocation fails.
 
 ### Display
 
@@ -133,6 +137,12 @@ d.rotation(0)      # accepted values: 0, 1, 2
 d.width()
 d.height()
 
+d.framebuffer()       # current screenshot-buffer state
+d.framebuffer(True)   # allocate in PSRAM and clear the display to black
+d.framebuffer(False)  # release the allocation
+d.capture()           # raw little-endian RGB565 bytes
+d.screenshot("screen.bmp")
+
 amoled.Display.WIDTH   # physical constant: 536
 amoled.Display.HEIGHT  # physical constant: 240
 ```
@@ -156,9 +166,9 @@ Drawing bounds behavior:
 - `pixel()`, `line()`, `rect()`, and `text()` skip off-screen pixels safely.
 - `blit()` and `draw_image()` require the complete target rectangle/image to
   fit on screen and raise `ValueError` otherwise.
-- A `blit()` buffer should contain exactly
+- A `blit()` buffer must contain exactly
   `(x1 - x0 + 1) * (y1 - y0 + 1)` little-endian RGB565 words, or twice that
-  number of bytes.
+  number of bytes; a different size raises `ValueError`.
 
 `brightness()` writes an 8-bit hardware register directly; it does not clamp
 or validate its argument. Pass values in the documented `0..255` range.
@@ -172,6 +182,46 @@ next 8-pixel text row, and the optional background paints each character cell.
 `draw_image(path, x, y, width, height)` treats the file as raw little-endian
 RGB565 data. Images are streamed one row at a time rather than loaded fully
 into RAM.
+
+### Screenshots
+
+The RM67162 connection is write-only, so screenshots use an optional shadow
+framebuffer rather than reading pixels back from the panel. Enable it when
+constructing the display:
+
+```python
+import amoled
+
+display = amoled.Display(framebuffer=True)
+
+# Draw normally using clear(), text(), shapes, blit(), draw_image(), or the
+# amoled_ui widget toolkit.
+display.screenshot("screen.bmp")
+```
+
+`screenshot(path)` streams a standard 24-bit BMP to the MicroPython
+filesystem. It uses only small row buffers during conversion and does not
+allocate a second complete frame. Copy the result to a computer, for example:
+
+```bash
+mpremote connect /dev/cu.usbmodem101 cp :screen.bmp screen.bmp
+```
+
+`capture()` returns the same frame as raw, row-major, little-endian RGB565
+bytes. The returned dimensions are `width()` by `height()` in the current
+logical rotation. Because the returned `bytes` object is a complete copy, it
+temporarily requires another approximately 251 KiB for a landscape frame.
+
+The shadow framebuffer tracks `clear()`, `pixel()`, `line()`, `rect()`,
+`fill_rect()`, `text()`, `blit()`, and `draw_image()`. It is stored in physical
+panel coordinates, so both BMP and raw captures follow the active logical
+rotation. Calling `framebuffer(True)` for the first time clears the panel to
+black because its existing RAM cannot be read back; this establishes an exact
+initial match between the panel and shadow buffer. Calling
+`framebuffer(False)` releases the PSRAM allocation. `capture()` and
+`screenshot()` raise `ValueError` while the framebuffer is disabled.
+
+A complete runnable example is available in `examples/screenshot.py`.
 
 ### Colors (RGB565)
 

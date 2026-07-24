@@ -24,6 +24,7 @@
 
 #include "py/runtime.h"
 #include "py/obj.h"
+#include "py/objstr.h"
 #include "py/builtin.h"
 #include "py/stream.h"
 #include <stdbool.h>
@@ -45,11 +46,38 @@ typedef struct _amoled_display_obj_t {
 
 static mp_obj_t display_make_new(const mp_obj_type_t *type, size_t n_args,
                                   size_t n_kw, const mp_obj_t *args) {
-    (void)n_args; (void)n_kw; (void)args;
+    enum {
+        ARG_framebuffer,
+    };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_framebuffer, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false} },
+    };
+    mp_arg_val_t parsed_args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all_kw_array(
+        n_args, n_kw, args, MP_ARRAY_SIZE(allowed_args),
+        allowed_args, parsed_args);
+
     amoled_display_obj_t *self = mp_obj_malloc(amoled_display_obj_t, type);
     esp_err_t err = rm67162_init();
     if (err != ESP_OK) {
         mp_raise_OSError(err);
+    }
+
+    if (parsed_args[ARG_framebuffer].u_bool &&
+        !rm67162_framebuffer_enabled()) {
+        err = rm67162_framebuffer_enable(true);
+        if (err == ESP_ERR_NO_MEM) {
+            mp_raise_msg(
+                &mp_type_MemoryError,
+                MP_ERROR_TEXT("framebuffer PSRAM allocation failed"));
+        }
+        if (err != ESP_OK) {
+            mp_raise_OSError(err);
+        }
+        // Panel RAM cannot be read back, so establish a known synchronized
+        // state when the shadow framebuffer is first enabled.
+        rm67162_fill_rect(
+            0, 0, rm67162_get_width() - 1, rm67162_get_height() - 1, 0);
     }
     return MP_OBJ_FROM_PTR(self);
 }
@@ -97,6 +125,54 @@ static mp_obj_t display_height(mp_obj_t self_in) {
     return mp_obj_new_int(rm67162_get_height());
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(display_height_obj, display_height);
+
+static mp_obj_t display_framebuffer(size_t n_args, const mp_obj_t *args) {
+    (void)args[0];
+    if (n_args == 1) {
+        return mp_obj_new_bool(rm67162_framebuffer_enabled());
+    }
+
+    bool enable = mp_obj_is_true(args[1]);
+    bool was_enabled = rm67162_framebuffer_enabled();
+    esp_err_t err = rm67162_framebuffer_enable(enable);
+    if (err == ESP_ERR_NO_MEM) {
+        mp_raise_msg(
+            &mp_type_MemoryError,
+            MP_ERROR_TEXT("framebuffer PSRAM allocation failed"));
+    }
+    if (err != ESP_OK) {
+        mp_raise_OSError(err);
+    }
+
+    if (enable && !was_enabled) {
+        rm67162_fill_rect(
+            0, 0, rm67162_get_width() - 1, rm67162_get_height() - 1, 0);
+    }
+    return mp_obj_new_bool(rm67162_framebuffer_enabled());
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    display_framebuffer_obj, 1, 2, display_framebuffer);
+
+static void display_require_framebuffer(void) {
+    if (!rm67162_framebuffer_enabled()) {
+        mp_raise_ValueError(MP_ERROR_TEXT("framebuffer is disabled"));
+    }
+}
+
+static mp_obj_t display_capture(mp_obj_t self_in) {
+    (void)self_in;
+    display_require_framebuffer();
+
+    vstr_t capture;
+    vstr_init_len(&capture, rm67162_framebuffer_size());
+    esp_err_t err = rm67162_capture(capture.buf, capture.len);
+    if (err != ESP_OK) {
+        vstr_clear(&capture);
+        mp_raise_OSError(err);
+    }
+    return mp_obj_new_bytes_from_vstr(&capture);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(display_capture_obj, display_capture);
 
 static void touch_apply_display_rotation(cst816_point_t *p) {
     uint16_t x = p->x;
@@ -189,17 +265,22 @@ static mp_obj_t display_blit(size_t n_args, const mp_obj_t *args) {
         x1 >= rm67162_get_width() || y1 >= rm67162_get_height()) {
         mp_raise_ValueError(MP_ERROR_TEXT("blit outside display"));
     }
+    size_t expected = (size_t)(x1 - x0 + 1) * (y1 - y0 + 1) *
+                      sizeof(uint16_t);
+    if (buf.len != expected) {
+        mp_raise_ValueError(MP_ERROR_TEXT("blit buffer has wrong size"));
+    }
     rm67162_set_window((uint16_t)x0, (uint16_t)y0, (uint16_t)x1, (uint16_t)y1);
     rm67162_push_pixels((const uint16_t *)buf.buf, buf.len / 2);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(display_blit_obj, 6, 6, display_blit);
 
-static mp_obj_t image_open(mp_obj_t path)
+static mp_obj_t file_open(mp_obj_t path, const char *mode)
 {
     mp_obj_t open_args[2] = {
         path,
-        mp_obj_new_str("rb", 2),
+        mp_obj_new_str(mode, strlen(mode)),
     };
     return mp_call_function_n_kw(MP_OBJ_FROM_PTR(&mp_builtin_open_obj), 2, 0, open_args);
 }
@@ -217,6 +298,105 @@ static bool image_read_exact(mp_obj_t file, void *buf, size_t len, int *errcode)
     return true;
 }
 
+static bool file_write_exact(mp_obj_t file, const void *buf, size_t len,
+                             int *errcode)
+{
+    mp_uint_t out = mp_stream_write_exactly(file, buf, len, errcode);
+    if (out == MP_STREAM_ERROR) {
+        return false;
+    }
+    if (out != len) {
+        *errcode = MP_EIO;
+        return false;
+    }
+    return true;
+}
+
+static void write_u16_le(uint8_t *dest, uint16_t value)
+{
+    dest[0] = (uint8_t)value;
+    dest[1] = (uint8_t)(value >> 8);
+}
+
+static void write_u32_le(uint8_t *dest, uint32_t value)
+{
+    dest[0] = (uint8_t)value;
+    dest[1] = (uint8_t)(value >> 8);
+    dest[2] = (uint8_t)(value >> 16);
+    dest[3] = (uint8_t)(value >> 24);
+}
+
+static mp_obj_t display_screenshot(mp_obj_t self_in, mp_obj_t path) {
+    (void)self_in;
+    display_require_framebuffer();
+
+    uint16_t width = rm67162_get_width();
+    uint16_t height = rm67162_get_height();
+    size_t row_stride = (((size_t)width * 3) + 3) & ~(size_t)3;
+    size_t pixels_size = (size_t)width * sizeof(uint16_t);
+    mp_obj_t file = file_open(path, "wb");
+    uint16_t *pixels = malloc(pixels_size);
+    uint8_t *bmp_row = malloc(row_stride);
+    if (pixels == NULL || bmp_row == NULL) {
+        free(pixels);
+        free(bmp_row);
+        mp_stream_close(file);
+        mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("screenshot row alloc"));
+    }
+
+    uint32_t image_size = (uint32_t)(row_stride * height);
+    uint8_t header[54] = {0};
+    header[0] = 'B';
+    header[1] = 'M';
+    write_u32_le(&header[2], (uint32_t)sizeof(header) + image_size);
+    write_u32_le(&header[10], sizeof(header));
+    write_u32_le(&header[14], 40);
+    write_u32_le(&header[18], width);
+    write_u32_le(&header[22], height);
+    write_u16_le(&header[26], 1);
+    write_u16_le(&header[28], 24);
+    write_u32_le(&header[34], image_size);
+    write_u32_le(&header[38], 2835);
+    write_u32_le(&header[42], 2835);
+
+    int errcode = 0;
+    bool ok = file_write_exact(
+        file, header, sizeof(header), &errcode);
+
+    for (uint16_t output_y = 0; ok && output_y < height; output_y++) {
+        uint16_t logical_y = (height - 1) - output_y;
+        esp_err_t err = rm67162_capture_row(
+            logical_y, pixels, width);
+        if (err != ESP_OK) {
+            errcode = err;
+            ok = false;
+            break;
+        }
+
+        memset(bmp_row, 0, row_stride);
+        for (uint16_t x = 0; x < width; x++) {
+            uint16_t color = pixels[x];
+            uint8_t red5 = (uint8_t)((color >> 11) & 0x1f);
+            uint8_t green6 = (uint8_t)((color >> 5) & 0x3f);
+            uint8_t blue5 = (uint8_t)(color & 0x1f);
+            bmp_row[(size_t)x * 3] = (uint8_t)((blue5 << 3) | (blue5 >> 2));
+            bmp_row[(size_t)x * 3 + 1] =
+                (uint8_t)((green6 << 2) | (green6 >> 4));
+            bmp_row[(size_t)x * 3 + 2] = (uint8_t)((red5 << 3) | (red5 >> 2));
+        }
+        ok = file_write_exact(file, bmp_row, row_stride, &errcode);
+    }
+
+    free(pixels);
+    free(bmp_row);
+    mp_stream_close(file);
+    if (!ok) {
+        mp_raise_OSError(errcode);
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(display_screenshot_obj, display_screenshot);
+
 static mp_obj_t display_draw_image(size_t n_args, const mp_obj_t *args) {
     // self, path, x, y, [w, h]
     int x = mp_obj_get_int(args[2]);
@@ -225,7 +405,7 @@ static mp_obj_t display_draw_image(size_t n_args, const mp_obj_t *args) {
     uint16_t h = 0;
     bool raw_size_given = n_args == 6;
 
-    mp_obj_t file = image_open(args[1]);
+    mp_obj_t file = file_open(args[1], "rb");
 
     if (raw_size_given) {
         w = (uint16_t)mp_obj_get_int(args[4]);
@@ -281,6 +461,9 @@ static const mp_rom_map_elem_t display_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_wake),       MP_ROM_PTR(&display_wake_obj) },
     { MP_ROM_QSTR(MP_QSTR_width),      MP_ROM_PTR(&display_width_obj) },
     { MP_ROM_QSTR(MP_QSTR_height),     MP_ROM_PTR(&display_height_obj) },
+    { MP_ROM_QSTR(MP_QSTR_framebuffer), MP_ROM_PTR(&display_framebuffer_obj) },
+    { MP_ROM_QSTR(MP_QSTR_capture),    MP_ROM_PTR(&display_capture_obj) },
+    { MP_ROM_QSTR(MP_QSTR_screenshot), MP_ROM_PTR(&display_screenshot_obj) },
     { MP_ROM_QSTR(MP_QSTR_clear),      MP_ROM_PTR(&display_clear_obj) },
     { MP_ROM_QSTR(MP_QSTR_pixel),      MP_ROM_PTR(&display_pixel_obj) },
     { MP_ROM_QSTR(MP_QSTR_line),       MP_ROM_PTR(&display_line_obj) },
