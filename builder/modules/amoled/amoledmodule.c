@@ -326,13 +326,91 @@ static void write_u32_le(uint8_t *dest, uint32_t value)
     dest[3] = (uint8_t)(value >> 24);
 }
 
+static size_t bmp_row_stride(uint16_t width)
+{
+    return (((size_t)width * 3) + 3) & ~(size_t)3;
+}
+
+static void bmp_write_header(uint8_t *header, uint16_t width, uint16_t height,
+                             size_t row_stride)
+{
+    uint32_t image_size = (uint32_t)(row_stride * height);
+    memset(header, 0, 54);
+    header[0] = 'B';
+    header[1] = 'M';
+    write_u32_le(&header[2], 54 + image_size);
+    write_u32_le(&header[10], 54);
+    write_u32_le(&header[14], 40);
+    write_u32_le(&header[18], width);
+    write_u32_le(&header[22], height);
+    write_u16_le(&header[26], 1);
+    write_u16_le(&header[28], 24);
+    write_u32_le(&header[34], image_size);
+    write_u32_le(&header[38], 2835);
+    write_u32_le(&header[42], 2835);
+}
+
+static void bmp_convert_row(const uint16_t *pixels, uint8_t *row,
+                            uint16_t width, size_t row_stride)
+{
+    memset(row, 0, row_stride);
+    for (uint16_t x = 0; x < width; x++) {
+        uint16_t color = pixels[x];
+        uint8_t red5 = (uint8_t)((color >> 11) & 0x1f);
+        uint8_t green6 = (uint8_t)((color >> 5) & 0x3f);
+        uint8_t blue5 = (uint8_t)(color & 0x1f);
+        row[(size_t)x * 3] = (uint8_t)((blue5 << 3) | (blue5 >> 2));
+        row[(size_t)x * 3 + 1] =
+            (uint8_t)((green6 << 2) | (green6 >> 4));
+        row[(size_t)x * 3 + 2] = (uint8_t)((red5 << 3) | (red5 >> 2));
+    }
+}
+
+static mp_obj_t display_capture_bmp(mp_obj_t self_in) {
+    (void)self_in;
+    display_require_framebuffer();
+
+    uint16_t width = rm67162_get_width();
+    uint16_t height = rm67162_get_height();
+    size_t row_stride = bmp_row_stride(width);
+    size_t bmp_size = 54 + row_stride * height;
+    uint16_t *pixels = malloc((size_t)width * sizeof(uint16_t));
+    if (pixels == NULL) {
+        mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("screenshot row alloc"));
+    }
+
+    vstr_t bmp;
+    vstr_init_len(&bmp, bmp_size);
+    bmp_write_header((uint8_t *)bmp.buf, width, height, row_stride);
+
+    for (uint16_t output_y = 0; output_y < height; output_y++) {
+        esp_err_t err = rm67162_capture_row(
+            (height - 1) - output_y, pixels, width);
+        if (err != ESP_OK) {
+            free(pixels);
+            vstr_clear(&bmp);
+            mp_raise_OSError(err);
+        }
+        bmp_convert_row(
+            pixels,
+            (uint8_t *)bmp.buf + 54 + (size_t)output_y * row_stride,
+            width,
+            row_stride);
+    }
+
+    free(pixels);
+    return mp_obj_new_bytes_from_vstr(&bmp);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(
+    display_capture_bmp_obj, display_capture_bmp);
+
 static mp_obj_t display_screenshot(mp_obj_t self_in, mp_obj_t path) {
     (void)self_in;
     display_require_framebuffer();
 
     uint16_t width = rm67162_get_width();
     uint16_t height = rm67162_get_height();
-    size_t row_stride = (((size_t)width * 3) + 3) & ~(size_t)3;
+    size_t row_stride = bmp_row_stride(width);
     size_t pixels_size = (size_t)width * sizeof(uint16_t);
     mp_obj_t file = file_open(path, "wb");
     uint16_t *pixels = malloc(pixels_size);
@@ -344,20 +422,8 @@ static mp_obj_t display_screenshot(mp_obj_t self_in, mp_obj_t path) {
         mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("screenshot row alloc"));
     }
 
-    uint32_t image_size = (uint32_t)(row_stride * height);
-    uint8_t header[54] = {0};
-    header[0] = 'B';
-    header[1] = 'M';
-    write_u32_le(&header[2], (uint32_t)sizeof(header) + image_size);
-    write_u32_le(&header[10], sizeof(header));
-    write_u32_le(&header[14], 40);
-    write_u32_le(&header[18], width);
-    write_u32_le(&header[22], height);
-    write_u16_le(&header[26], 1);
-    write_u16_le(&header[28], 24);
-    write_u32_le(&header[34], image_size);
-    write_u32_le(&header[38], 2835);
-    write_u32_le(&header[42], 2835);
+    uint8_t header[54];
+    bmp_write_header(header, width, height, row_stride);
 
     int errcode = 0;
     bool ok = file_write_exact(
@@ -373,17 +439,7 @@ static mp_obj_t display_screenshot(mp_obj_t self_in, mp_obj_t path) {
             break;
         }
 
-        memset(bmp_row, 0, row_stride);
-        for (uint16_t x = 0; x < width; x++) {
-            uint16_t color = pixels[x];
-            uint8_t red5 = (uint8_t)((color >> 11) & 0x1f);
-            uint8_t green6 = (uint8_t)((color >> 5) & 0x3f);
-            uint8_t blue5 = (uint8_t)(color & 0x1f);
-            bmp_row[(size_t)x * 3] = (uint8_t)((blue5 << 3) | (blue5 >> 2));
-            bmp_row[(size_t)x * 3 + 1] =
-                (uint8_t)((green6 << 2) | (green6 >> 4));
-            bmp_row[(size_t)x * 3 + 2] = (uint8_t)((red5 << 3) | (red5 >> 2));
-        }
+        bmp_convert_row(pixels, bmp_row, width, row_stride);
         ok = file_write_exact(file, bmp_row, row_stride, &errcode);
     }
 
@@ -463,6 +519,7 @@ static const mp_rom_map_elem_t display_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_height),     MP_ROM_PTR(&display_height_obj) },
     { MP_ROM_QSTR(MP_QSTR_framebuffer), MP_ROM_PTR(&display_framebuffer_obj) },
     { MP_ROM_QSTR(MP_QSTR_capture),    MP_ROM_PTR(&display_capture_obj) },
+    { MP_ROM_QSTR(MP_QSTR_capture_bmp), MP_ROM_PTR(&display_capture_bmp_obj) },
     { MP_ROM_QSTR(MP_QSTR_screenshot), MP_ROM_PTR(&display_screenshot_obj) },
     { MP_ROM_QSTR(MP_QSTR_clear),      MP_ROM_PTR(&display_clear_obj) },
     { MP_ROM_QSTR(MP_QSTR_pixel),      MP_ROM_PTR(&display_pixel_obj) },

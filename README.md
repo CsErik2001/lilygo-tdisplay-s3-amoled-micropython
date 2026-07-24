@@ -141,6 +141,7 @@ d.framebuffer()       # current screenshot-buffer state
 d.framebuffer(True)   # allocate in PSRAM and clear the display to black
 d.framebuffer(False)  # release the allocation
 d.capture()           # raw little-endian RGB565 bytes
+d.capture_bmp()       # complete 24-bit BMP bytes
 d.screenshot("screen.bmp")
 
 amoled.Display.WIDTH   # physical constant: 536
@@ -197,6 +198,9 @@ display = amoled.Display(framebuffer=True)
 # Draw normally using clear(), text(), shapes, blit(), draw_image(), or the
 # amoled_ui widget toolkit.
 display.screenshot("screen.bmp")
+
+# Or keep the complete BMP in memory for an HTTP upload or other processing.
+bmp = display.capture_bmp()
 ```
 
 `screenshot(path)` streams a standard 24-bit BMP to the MicroPython
@@ -206,6 +210,11 @@ allocate a second complete frame. Copy the result to a computer, for example:
 ```bash
 mpremote connect /dev/cu.usbmodem101 cp :screen.bmp screen.bmp
 ```
+
+`capture_bmp()` returns the same standard 24-bit BMP as a `bytes` object
+without writing to the filesystem. A `536 x 240` frame occupies 385,974 bytes
+(approximately 377 KiB), so release the returned object when it is no longer
+needed.
 
 `capture()` returns the same frame as raw, row-major, little-endian RGB565
 bytes. The returned dimensions are `width()` by `height()` in the current
@@ -218,8 +227,9 @@ panel coordinates, so both BMP and raw captures follow the active logical
 rotation. Calling `framebuffer(True)` for the first time clears the panel to
 black because its existing RAM cannot be read back; this establishes an exact
 initial match between the panel and shadow buffer. Calling
-`framebuffer(False)` releases the PSRAM allocation. `capture()` and
-`screenshot()` raise `ValueError` while the framebuffer is disabled.
+`framebuffer(False)` releases the PSRAM allocation. `capture()`,
+`capture_bmp()`, and `screenshot()` raise `ValueError` while the framebuffer
+is disabled.
 
 A complete runnable example is available in `examples/screenshot.py`.
 

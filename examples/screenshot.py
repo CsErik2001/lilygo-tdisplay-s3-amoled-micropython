@@ -16,6 +16,12 @@ display.text("RGB565 -> BMP", 28, 70, background, 1, accent)
 # Saves a standard 24-bit BMP to the MicroPython filesystem.
 display.screenshot("screenshot.bmp")
 
+# The same BMP can be kept in memory for a network upload without writing it
+# to the filesystem.
+bmp = display.capture_bmp()
+print("in-memory BMP:", len(bmp), "bytes")
+del bmp
+
 # Raw little-endian RGB565 data is also available when a host-side encoder or
 # network transfer is more useful. Its dimensions are display.width() and
 # display.height() in the active rotation.
