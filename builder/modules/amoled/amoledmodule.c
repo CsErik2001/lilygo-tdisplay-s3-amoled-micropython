@@ -33,6 +33,7 @@
 #include "rm67162.h"
 #include "cst816.h"
 #include "pcf85063.h"
+#include "bq25896.h"
 
 // ---------------------------------------------------------------------
 // Display
@@ -455,6 +456,248 @@ MP_DEFINE_CONST_OBJ_TYPE(
     );
 
 // ---------------------------------------------------------------------
+// PMU (BQ25896)
+// ---------------------------------------------------------------------
+
+typedef struct _amoled_pmu_obj_t {
+    mp_obj_base_t base;
+} amoled_pmu_obj_t;
+
+typedef esp_err_t (*pmu_get_u16_t)(uint16_t *value);
+typedef esp_err_t (*pmu_set_u16_t)(uint16_t value);
+
+static void pmu_check_error(esp_err_t err) {
+    if (err == ESP_OK) {
+        return;
+    }
+    if (err == ESP_ERR_INVALID_ARG) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid PMU value"));
+    }
+    mp_raise_OSError(err);
+}
+
+static mp_obj_t pmu_string(const char *value) {
+    return mp_obj_new_str(value, strlen(value));
+}
+
+static void pmu_dict_store(mp_obj_t dict, qstr key, mp_obj_t value) {
+    mp_obj_dict_store(dict, MP_OBJ_NEW_QSTR(key), value);
+}
+
+static uint16_t pmu_normalize_value(mp_obj_t value_in, int minimum, int maximum,
+                                    int base, int step, bool allow_zero,
+                                    mp_rom_error_text_t error_message) {
+    int value = mp_obj_get_int(value_in);
+    if (allow_zero && value == 0) {
+        return 0;
+    }
+    if (value < minimum || value > maximum) {
+        mp_raise_ValueError(error_message);
+    }
+    return (uint16_t)(base + ((value - base) / step) * step);
+}
+
+static mp_obj_t pmu_u16_property(size_t n_args, const mp_obj_t *args,
+                                 pmu_get_u16_t getter, pmu_set_u16_t setter,
+                                 int minimum, int maximum, int base, int step,
+                                 bool allow_zero, mp_rom_error_text_t error_message) {
+    (void)args[0];
+    uint16_t value;
+    if (n_args == 1) {
+        pmu_check_error(getter(&value));
+        return mp_obj_new_int(value);
+    }
+
+    value = pmu_normalize_value(
+        args[1], minimum, maximum, base, step, allow_zero, error_message);
+    pmu_check_error(setter(value));
+    return mp_obj_new_int(value);
+}
+
+static mp_obj_t pmu_make_new(const mp_obj_type_t *type, size_t n_args,
+                              size_t n_kw, const mp_obj_t *args) {
+    (void)n_args; (void)n_kw; (void)args;
+    amoled_pmu_obj_t *self = mp_obj_malloc(amoled_pmu_obj_t, type);
+    esp_err_t err = bq25896_init();
+    if (err == ESP_ERR_NOT_FOUND) {
+        mp_raise_OSError(ENODEV);
+    }
+    pmu_check_error(err);
+    return MP_OBJ_FROM_PTR(self);
+}
+
+static mp_obj_t pmu_charging(size_t n_args, const mp_obj_t *args) {
+    (void)args[0];
+    if (n_args == 1) {
+        bool enabled;
+        pmu_check_error(bq25896_get_charging(&enabled));
+        return mp_obj_new_bool(enabled);
+    }
+    bool enabled = mp_obj_is_true(args[1]);
+    pmu_check_error(bq25896_set_charging(enabled));
+    return mp_obj_new_bool(enabled);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pmu_charging_obj, 1, 2, pmu_charging);
+
+static mp_obj_t pmu_charge_current(size_t n_args, const mp_obj_t *args) {
+    return pmu_u16_property(
+        n_args, args, bq25896_get_charge_current, bq25896_set_charge_current,
+        BQ25896_CHARGE_CURRENT_STEP_MA, BQ25896_CHARGE_CURRENT_MAX_MA,
+        0, BQ25896_CHARGE_CURRENT_STEP_MA, true,
+        MP_ERROR_TEXT("charge current must be 0 or 64..1024 mA"));
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pmu_charge_current_obj, 1, 2, pmu_charge_current);
+
+static mp_obj_t pmu_charge_voltage(size_t n_args, const mp_obj_t *args) {
+    return pmu_u16_property(
+        n_args, args, bq25896_get_charge_voltage, bq25896_set_charge_voltage,
+        BQ25896_CHARGE_VOLTAGE_MIN_MV, BQ25896_CHARGE_VOLTAGE_MAX_MV,
+        BQ25896_CHARGE_VOLTAGE_MIN_MV, BQ25896_CHARGE_VOLTAGE_STEP_MV, false,
+        MP_ERROR_TEXT("charge voltage must be 3840..4208 mV"));
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pmu_charge_voltage_obj, 1, 2, pmu_charge_voltage);
+
+static mp_obj_t pmu_input_current_limit(size_t n_args, const mp_obj_t *args) {
+    return pmu_u16_property(
+        n_args, args, bq25896_get_input_current_limit, bq25896_set_input_current_limit,
+        BQ25896_INPUT_CURRENT_MIN_MA, BQ25896_INPUT_CURRENT_MAX_MA,
+        BQ25896_INPUT_CURRENT_MIN_MA, BQ25896_INPUT_CURRENT_STEP_MA, false,
+        MP_ERROR_TEXT("input current limit must be 100..1500 mA"));
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    pmu_input_current_limit_obj, 1, 2, pmu_input_current_limit);
+
+static mp_obj_t pmu_input_voltage_limit(size_t n_args, const mp_obj_t *args) {
+    return pmu_u16_property(
+        n_args, args, bq25896_get_input_voltage_limit, bq25896_set_input_voltage_limit,
+        BQ25896_INPUT_VOLTAGE_MIN_MV, BQ25896_INPUT_VOLTAGE_MAX_MV,
+        BQ25896_INPUT_VOLTAGE_MIN_MV, BQ25896_INPUT_VOLTAGE_STEP_MV, false,
+        MP_ERROR_TEXT("input voltage limit must be 3900..5500 mV"));
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    pmu_input_voltage_limit_obj, 1, 2, pmu_input_voltage_limit);
+
+static mp_obj_t pmu_battery_voltage(mp_obj_t self_in) {
+    (void)self_in;
+    uint16_t value;
+    pmu_check_error(bq25896_get_battery_voltage(&value));
+    return mp_obj_new_int(value);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pmu_battery_voltage_obj, pmu_battery_voltage);
+
+static mp_obj_t pmu_bus_voltage(mp_obj_t self_in) {
+    (void)self_in;
+    uint16_t value;
+    pmu_check_error(bq25896_get_bus_voltage(&value));
+    return mp_obj_new_int(value);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pmu_bus_voltage_obj, pmu_bus_voltage);
+
+static mp_obj_t pmu_system_voltage(mp_obj_t self_in) {
+    (void)self_in;
+    uint16_t value;
+    pmu_check_error(bq25896_get_system_voltage(&value));
+    return mp_obj_new_int(value);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pmu_system_voltage_obj, pmu_system_voltage);
+
+static mp_obj_t pmu_measured_charge_current(mp_obj_t self_in) {
+    (void)self_in;
+    uint16_t value;
+    pmu_check_error(bq25896_get_measured_charge_current(&value));
+    return mp_obj_new_int(value);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(
+    pmu_measured_charge_current_obj, pmu_measured_charge_current);
+
+static mp_obj_t pmu_charge_status(mp_obj_t self_in) {
+    (void)self_in;
+    uint8_t status;
+    pmu_check_error(bq25896_get_charge_status(&status));
+    return pmu_string(bq25896_charge_status_name(status));
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pmu_charge_status_obj, pmu_charge_status);
+
+static mp_obj_t pmu_power_status(mp_obj_t self_in) {
+    (void)self_in;
+    bq25896_power_status_t status;
+    pmu_check_error(bq25896_get_power_status(&status));
+
+    mp_obj_t dict = mp_obj_new_dict(10);
+    pmu_dict_store(dict, MP_QSTR_raw, mp_obj_new_int(status.raw_status));
+    pmu_dict_store(dict, MP_QSTR_source, pmu_string(bq25896_source_name(status.source)));
+    pmu_dict_store(dict, MP_QSTR_source_code, mp_obj_new_int(status.source));
+    pmu_dict_store(dict, MP_QSTR_charge_status,
+                   pmu_string(bq25896_charge_status_name(status.charge_status)));
+    pmu_dict_store(dict, MP_QSTR_charging,
+                   mp_obj_new_bool(status.charge_status == BQ25896_CHARGE_PRECHARGE ||
+                                   status.charge_status == BQ25896_CHARGE_FAST));
+    pmu_dict_store(dict, MP_QSTR_power_good, mp_obj_new_bool(status.power_good));
+    pmu_dict_store(dict, MP_QSTR_vbus_present, mp_obj_new_bool(status.vbus_present));
+    pmu_dict_store(dict, MP_QSTR_thermal_regulation,
+                   mp_obj_new_bool(status.thermal_regulation));
+    pmu_dict_store(dict, MP_QSTR_input_voltage_limited,
+                   mp_obj_new_bool(status.input_voltage_limited));
+    pmu_dict_store(dict, MP_QSTR_input_current_limited,
+                   mp_obj_new_bool(status.input_current_limited));
+    pmu_dict_store(dict, MP_QSTR_vsys_minimum, mp_obj_new_bool(status.vsys_minimum));
+    return dict;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pmu_power_status_obj, pmu_power_status);
+
+static mp_obj_t pmu_faults(mp_obj_t self_in) {
+    (void)self_in;
+    bq25896_faults_t faults;
+    pmu_check_error(bq25896_get_faults(&faults));
+
+    bool active = faults.watchdog || faults.boost || faults.charge != 0 ||
+                  faults.battery || faults.ntc != 0;
+    mp_obj_t dict = mp_obj_new_dict(9);
+    pmu_dict_store(dict, MP_QSTR_raw, mp_obj_new_int(faults.raw));
+    pmu_dict_store(dict, MP_QSTR_active, mp_obj_new_bool(active));
+    pmu_dict_store(dict, MP_QSTR_watchdog, mp_obj_new_bool(faults.watchdog));
+    pmu_dict_store(dict, MP_QSTR_boost, mp_obj_new_bool(faults.boost));
+    pmu_dict_store(dict, MP_QSTR_charge, pmu_string(bq25896_charge_fault_name(faults.charge)));
+    pmu_dict_store(dict, MP_QSTR_charge_code, mp_obj_new_int(faults.charge));
+    pmu_dict_store(dict, MP_QSTR_battery, mp_obj_new_bool(faults.battery));
+    pmu_dict_store(dict, MP_QSTR_ntc, pmu_string(bq25896_ntc_fault_name(faults.ntc)));
+    pmu_dict_store(dict, MP_QSTR_ntc_code, mp_obj_new_int(faults.ntc));
+    return dict;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pmu_faults_obj, pmu_faults);
+
+static const mp_rom_map_elem_t pmu_locals_dict_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_charging), MP_ROM_PTR(&pmu_charging_obj) },
+    { MP_ROM_QSTR(MP_QSTR_charge_current), MP_ROM_PTR(&pmu_charge_current_obj) },
+    { MP_ROM_QSTR(MP_QSTR_charge_voltage), MP_ROM_PTR(&pmu_charge_voltage_obj) },
+    { MP_ROM_QSTR(MP_QSTR_input_current_limit), MP_ROM_PTR(&pmu_input_current_limit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_input_voltage_limit), MP_ROM_PTR(&pmu_input_voltage_limit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_battery_voltage), MP_ROM_PTR(&pmu_battery_voltage_obj) },
+    { MP_ROM_QSTR(MP_QSTR_bus_voltage), MP_ROM_PTR(&pmu_bus_voltage_obj) },
+    { MP_ROM_QSTR(MP_QSTR_system_voltage), MP_ROM_PTR(&pmu_system_voltage_obj) },
+    { MP_ROM_QSTR(MP_QSTR_measured_charge_current),
+      MP_ROM_PTR(&pmu_measured_charge_current_obj) },
+    { MP_ROM_QSTR(MP_QSTR_charge_status), MP_ROM_PTR(&pmu_charge_status_obj) },
+    { MP_ROM_QSTR(MP_QSTR_power_status), MP_ROM_PTR(&pmu_power_status_obj) },
+    { MP_ROM_QSTR(MP_QSTR_faults), MP_ROM_PTR(&pmu_faults_obj) },
+    { MP_ROM_QSTR(MP_QSTR_CHARGE_CURRENT_MAX),
+      MP_ROM_INT(BQ25896_CHARGE_CURRENT_MAX_MA) },
+    { MP_ROM_QSTR(MP_QSTR_CHARGE_VOLTAGE_MAX),
+      MP_ROM_INT(BQ25896_CHARGE_VOLTAGE_MAX_MV) },
+    { MP_ROM_QSTR(MP_QSTR_INPUT_CURRENT_MAX),
+      MP_ROM_INT(BQ25896_INPUT_CURRENT_MAX_MA) },
+};
+static MP_DEFINE_CONST_DICT(pmu_locals_dict, pmu_locals_dict_table);
+
+MP_DEFINE_CONST_OBJ_TYPE(
+    amoled_pmu_type,
+    MP_QSTR_PMU,
+    MP_TYPE_FLAG_NONE,
+    make_new, pmu_make_new,
+    locals_dict, &pmu_locals_dict
+    );
+
+// ---------------------------------------------------------------------
 // Module
 // ---------------------------------------------------------------------
 
@@ -489,6 +732,7 @@ static const mp_rom_map_elem_t amoled_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_Display),  MP_ROM_PTR(&amoled_display_type) },
     { MP_ROM_QSTR(MP_QSTR_Touch),    MP_ROM_PTR(&amoled_touch_type) },
     { MP_ROM_QSTR(MP_QSTR_RTC),      MP_ROM_PTR(&amoled_rtc_type) },
+    { MP_ROM_QSTR(MP_QSTR_PMU),      MP_ROM_PTR(&amoled_pmu_type) },
     { MP_ROM_QSTR(MP_QSTR_rgb),       MP_ROM_PTR(&module_rgb_obj) },
     { MP_ROM_QSTR(MP_QSTR_scan_i2c),  MP_ROM_PTR(&module_scan_i2c_obj) },
     { MP_ROM_QSTR(MP_QSTR_WIDTH),     MP_ROM_INT(RM67162_WIDTH) },

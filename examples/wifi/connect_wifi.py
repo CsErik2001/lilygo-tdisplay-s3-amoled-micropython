@@ -23,55 +23,6 @@ LIST_TOP = 68
 ITEM_H = 24
 MAX_VISIBLE = 7
 
-UPPER = (
-    (("Q","Q",1),("W","W",1),("E","E",1),("R","R",1),("T","T",1),
-     ("Y","Y",1),("U","U",1),("I","I",1),("O","O",1),("P","P",1)),
-    (("A","A",1),("S","S",1),("D","D",1),("F","F",1),("G","G",1),
-     ("H","H",1),("J","J",1),("K","K",1),("L","L",1)),
-    (("SHFT",ui.Keyboard.ACTION_SHIFT,2),("Z","Z",1),("X","X",1),
-     ("C","C",1),("V","V",1),("B","B",1),("N","N",1),("M","M",1)),
-    (("123",ui.Keyboard.ACTION_NUMBERS,2),("BKSP","\b",2),("SPACE"," ",4),("DONE","\n",2)),
-)
-
-LOWER = (
-    (("Q","q",1),("W","w",1),("E","e",1),("R","r",1),("T","t",1),
-     ("Y","y",1),("U","u",1),("I","i",1),("O","o",1),("P","p",1)),
-    (("A","a",1),("S","s",1),("D","d",1),("F","f",1),("G","g",1),
-     ("H","h",1),("J","j",1),("K","k",1),("L","l",1)),
-    (("SHFT",ui.Keyboard.ACTION_SHIFT,2),("Z","z",1),("X","x",1),
-     ("C","c",1),("V","v",1),("B","b",1),("N","n",1),("M","m",1)),
-    (("123",ui.Keyboard.ACTION_NUMBERS,2),("BKSP","\b",2),("SPACE"," ",4),("DONE","\n",2)),
-)
-
-
-class _ShiftKeyboard(ui.Keyboard):
-    def __init__(self, x, y, width, height, **kw):
-        self._shifted = False
-        kw["rows"] = LOWER
-        super().__init__(x, y, width, height, **kw)
-
-    def _toggle_shift(self):
-        self._shifted = not self._shifted
-        self.set_letter_rows(UPPER if self._shifted else LOWER)
-
-    def _key_colors(self, theme, index, value):
-        if value == ui.Keyboard.ACTION_SHIFT:
-            if self.target is None:
-                return theme.control_disabled, theme.muted
-            if index == self._pressed_key:
-                return theme.control_pressed, theme.foreground
-            if self._shifted:
-                return theme.accent, theme.foreground
-            return theme.control, theme.muted
-        return super()._key_colors(theme, index, value)
-
-    def _activate_value(self, value):
-        if value == ui.Keyboard.ACTION_SHIFT:
-            self._toggle_shift()
-        else:
-            super()._activate_value(value)
-
-
 def _scan():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
@@ -167,10 +118,13 @@ def run(display, touch, theme=None):
             selected[0] = ssid
             _clear(screen)
             inp_w = W - 24 - 120 - 8
-            password_input[0] = ui.TextInput(x=12, y=8, width=inp_w, height=28, placeholder=ssid)
+            password_input[0] = ui.TextInput(
+                x=12, y=8, width=inp_w, height=28,
+                placeholder=ssid, password=True,
+            )
             screen.add(password_input[0])
             screen.add(ui.Button("Connect", x=12 + inp_w + 8, y=8, width=120, height=28, on_click=do_connect))
-            kb = _ShiftKeyboard(x=0, y=40, width=W, height=H - 40)
+            kb = ui.Keyboard(x=0, y=40, width=W, height=H - 40)
             screen.set_keyboard(kb)
             screen.set_focus(password_input[0])
 

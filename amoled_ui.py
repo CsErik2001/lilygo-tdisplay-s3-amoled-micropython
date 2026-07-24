@@ -528,9 +528,12 @@ class Switch(_ToggleControl):
         if not self.enabled:
             track_color = theme.control_disabled
             thumb_color = theme.muted
-        elif self.pressed:
-            track_color = theme.control_pressed
+        elif self.value and self.pressed:
+            track_color = theme.accent
             thumb_color = theme.foreground
+        elif self.pressed:
+            track_color = theme.control
+            thumb_color = theme.muted
         elif self.value:
             track_color = theme.accent
             thumb_color = theme.foreground
@@ -765,6 +768,7 @@ class TextInput(Widget):
         scale=1,
         visible=True,
         enabled=True,
+        password=False,
     ):
         super().__init__(x, y, width, height, visible=visible, enabled=enabled)
         self.value = str(value)
@@ -778,6 +782,7 @@ class TextInput(Widget):
         self.background = background
         self.border = border
         self.scale = int(scale)
+        self.password = bool(password)
         if self.scale < 1:
             raise ValueError("scale must be at least 1")
         self.focused = False
@@ -830,7 +835,8 @@ class TextInput(Widget):
         display.rect(self.x, self.y, self.x1, self.y1, border)
 
         if self.value:
-            text = self.value + ("_" if self.focused else "")
+            visible_value = "*" * len(self.value) if self.password else self.value
+            text = visible_value + ("_" if self.focused else "")
             text_color = color
         elif self.focused:
             text = "_"
@@ -868,6 +874,32 @@ class Keyboard(Widget):
 
     LETTER_ROWS = (
         (
+            ("q", "q", 1), ("w", "w", 1), ("e", "e", 1),
+            ("r", "r", 1), ("t", "t", 1), ("y", "y", 1),
+            ("u", "u", 1), ("i", "i", 1), ("o", "o", 1),
+            ("p", "p", 1),
+        ),
+        (
+            ("a", "a", 1), ("s", "s", 1), ("d", "d", 1),
+            ("f", "f", 1), ("g", "g", 1), ("h", "h", 1),
+            ("j", "j", 1), ("k", "k", 1), ("l", "l", 1),
+        ),
+        (
+            ("LOW", _KEY_SHIFT, 2),
+            ("z", "z", 1), ("x", "x", 1), ("c", "c", 1),
+            ("v", "v", 1), ("b", "b", 1), ("n", "n", 1),
+            ("m", "m", 1),
+        ),
+        (
+            ("123", _KEY_NUMBERS, 2),
+            ("BKSP", _KEY_BACKSPACE, 2),
+            ("SPACE", " ", 4),
+            ("DONE", _KEY_DONE, 2),
+        ),
+    )
+
+    SHIFTED_ROWS = (
+        (
             ("Q", "Q", 1), ("W", "W", 1), ("E", "E", 1),
             ("R", "R", 1), ("T", "T", 1), ("Y", "Y", 1),
             ("U", "U", 1), ("I", "I", 1), ("O", "O", 1),
@@ -879,7 +911,7 @@ class Keyboard(Widget):
             ("J", "J", 1), ("K", "K", 1), ("L", "L", 1),
         ),
         (
-            ("SHFT", _KEY_SHIFT, 2),
+            ("CAPS", _KEY_SHIFT, 2),
             ("Z", "Z", 1), ("X", "X", 1), ("C", "C", 1),
             ("V", "V", 1), ("B", "B", 1), ("N", "N", 1),
             ("M", "M", 1),
@@ -893,14 +925,28 @@ class Keyboard(Widget):
     )
 
     NUMBER_ROWS = (
-        (("1", "1", 1), ("2", "2", 1), ("3", "3", 1)),
-        (("4", "4", 1), ("5", "5", 1), ("6", "6", 1)),
-        (("7", "7", 1), ("8", "8", 1), ("9", "9", 1)),
         (
-            ("ABC", _KEY_LETTERS, 1),
+            ("1", "1", 1), ("2", "2", 1), ("3", "3", 1),
+            ("4", "4", 1), ("5", "5", 1), ("6", "6", 1),
+            ("7", "7", 1), ("8", "8", 1), ("9", "9", 1),
             ("0", "0", 1),
-            ("BKSP", _KEY_BACKSPACE, 1),
-            ("DONE", _KEY_DONE, 1),
+        ),
+        (
+            ("!", "!", 1), ("@", "@", 1), ("#", "#", 1),
+            ("$", "$", 1), ("%", "%", 1), ("^", "^", 1),
+            ("&", "&", 1), ("*", "*", 1), ("(", "(", 1),
+            (")", ")", 1),
+        ),
+        (
+            ("-", "-", 1), ("_", "_", 1), ("=", "=", 1),
+            ("+", "+", 1), ("[", "[", 1), ("]", "]", 1),
+            ("/", "/", 1), ("\\", "\\", 1),
+        ),
+        (
+            ("ABC", _KEY_LETTERS, 2), (".", ".", 1),
+            (",", ",", 1), (":", ":", 1), (";", ";", 1),
+            ("?", "?", 1), ("BKSP", _KEY_BACKSPACE, 2),
+            ("DONE", _KEY_DONE, 2),
         ),
     )
 
@@ -912,6 +958,7 @@ class Keyboard(Widget):
         height,
         target=None,
         rows=None,
+        shifted_rows=None,
         number_rows=None,
         mode=MODE_LETTERS,
         gap=2,
@@ -919,16 +966,19 @@ class Keyboard(Widget):
     ):
         super().__init__(x, y, width, height, visible=visible)
         self.target = target
+        self._shifted = False
         self.letter_rows = self.LETTER_ROWS if rows is None else rows
+        self.shifted_rows = (
+            self.SHIFTED_ROWS
+            if rows is None and shifted_rows is None
+            else shifted_rows
+        )
         self.number_rows = self.NUMBER_ROWS if number_rows is None else number_rows
         if mode not in (self.MODE_LETTERS, self.MODE_NUMBERS):
             raise ValueError("keyboard mode must be letters or numbers")
         self.mode = mode
-        self.rows = (
-            self.letter_rows if mode == self.MODE_LETTERS else self.number_rows
-        )
+        self.rows = self._rows_for_mode(mode)
         self.gap = int(gap)
-        self._shifted = False
         self._keys = []
         self._pressed_key = None
         self._dirty_keys = []
@@ -972,10 +1022,19 @@ class Keyboard(Widget):
         self._build_keys()
         self.invalidate()
 
-    def set_letter_rows(self, rows):
+    def _rows_for_mode(self, mode):
+        if mode == self.MODE_NUMBERS:
+            return self.number_rows
+        if self._shifted and self.shifted_rows is not None:
+            return self.shifted_rows
+        return self.letter_rows
+
+    def set_letter_rows(self, rows, shifted_rows=None):
         self.letter_rows = rows
+        if shifted_rows is not None:
+            self.shifted_rows = shifted_rows
         if self.mode == self.MODE_LETTERS:
-            self._set_rows(rows)
+            self._set_rows(self._rows_for_mode(self.mode))
 
     def set_mode(self, mode):
         if mode not in (self.MODE_LETTERS, self.MODE_NUMBERS):
@@ -983,8 +1042,7 @@ class Keyboard(Widget):
         if mode == self.mode:
             return
         self.mode = mode
-        rows = self.letter_rows if mode == self.MODE_LETTERS else self.number_rows
-        self._set_rows(rows)
+        self._set_rows(self._rows_for_mode(mode))
 
     def invalidate(self):
         self._full_dirty = True
@@ -1075,7 +1133,7 @@ class Keyboard(Widget):
             self.set_mode(self.MODE_LETTERS)
         elif value == _KEY_SHIFT:
             self._shifted = not self._shifted
-            self.dirty = True
+            self._set_rows(self._rows_for_mode(self.mode))
         elif value == _KEY_BACKSPACE:
             self.target.backspace()
         elif value == _KEY_DONE:

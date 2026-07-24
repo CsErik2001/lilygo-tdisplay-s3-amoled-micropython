@@ -6,6 +6,7 @@ target_sources(usermod_amoled INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/rm67162.c
     ${CMAKE_CURRENT_LIST_DIR}/cst816.c
     ${CMAKE_CURRENT_LIST_DIR}/pcf85063.c
+    ${CMAKE_CURRENT_LIST_DIR}/bq25896.c
 )
 
 target_include_directories(usermod_amoled INTERFACE
@@ -16,6 +17,7 @@ target_include_directories(usermod_amoled INTERFACE
 target_link_libraries(usermod_amoled INTERFACE
     idf::driver
     idf::esp_rom
+    idf::freertos
 )
 
 target_link_libraries(usermod INTERFACE usermod_amoled)
