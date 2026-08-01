@@ -741,7 +741,10 @@ class ProgressBar(Widget):
         text = str(int(ratio * 100 + 0.5)) + "%"
         text_x = self.x + max(0, (self.width - _text_width(text, 1)) // 2)
         text_y = self.y + max(0, (self.height - 8) // 2)
-        display.text(text, text_x, text_y, theme.foreground, 1)
+        label_background = color if fill_width >= self.width // 2 else background
+        display.text(
+            text, text_x, text_y, theme.foreground, 1, label_background
+        )
         self.dirty = False
 
 

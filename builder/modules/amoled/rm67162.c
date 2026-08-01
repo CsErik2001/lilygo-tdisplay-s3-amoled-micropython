@@ -15,6 +15,7 @@
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 
 #define SPI_HOST_USED       SPI3_HOST
@@ -33,6 +34,13 @@ static uint8_t s_madctl = MADCTL_MX | MADCTL_MV | MADCTL_RGB;
 static uint16_t s_width = RM67162_WIDTH;
 static uint16_t s_height = RM67162_HEIGHT;
 static uint16_t s_txbuf[SEND_BUF_PIXELS];
+static uint16_t *s_framebuffer;
+static uint16_t s_window_x0;
+static uint16_t s_window_y0;
+static uint16_t s_window_x1;
+static uint16_t s_window_y1;
+static uint32_t s_window_cursor;
+static bool s_window_valid;
 
 typedef struct {
     uint8_t cmd;
@@ -93,6 +101,62 @@ static esp_err_t spi_write(const void *data, size_t len)
 static inline uint16_t swap16(uint16_t value)
 {
     return (uint16_t)((value << 8) | (value >> 8));
+}
+
+static inline void logical_to_physical(uint16_t x, uint16_t y,
+                                       uint16_t *physical_x,
+                                       uint16_t *physical_y)
+{
+    switch (s_rotation) {
+        case 1:
+            *physical_x = y;
+            *physical_y = (RM67162_HEIGHT - 1) - x;
+            break;
+        case 2:
+            *physical_x = (RM67162_WIDTH - 1) - x;
+            *physical_y = (RM67162_HEIGHT - 1) - y;
+            break;
+        default:
+            *physical_x = x;
+            *physical_y = y;
+            break;
+    }
+}
+
+static inline uint16_t framebuffer_get_logical_pixel(uint16_t x, uint16_t y)
+{
+    uint16_t physical_x;
+    uint16_t physical_y;
+    logical_to_physical(x, y, &physical_x, &physical_y);
+    return s_framebuffer[(size_t)physical_y * RM67162_WIDTH + physical_x];
+}
+
+static void framebuffer_push_pixels(const uint16_t *data, uint32_t len)
+{
+    if (s_framebuffer == NULL || !s_window_valid) {
+        return;
+    }
+
+    uint32_t window_width = (uint32_t)s_window_x1 - s_window_x0 + 1;
+    uint32_t window_height = (uint32_t)s_window_y1 - s_window_y0 + 1;
+    uint32_t window_pixels = window_width * window_height;
+    uint32_t cursor = s_window_cursor;
+    uint16_t x = (uint16_t)(s_window_x0 + (cursor % window_width));
+    uint16_t y = (uint16_t)(s_window_y0 + (cursor / window_width));
+
+    for (uint32_t i = 0; i < len && cursor < window_pixels; i++) {
+        uint16_t physical_x;
+        uint16_t physical_y;
+        logical_to_physical(x, y, &physical_x, &physical_y);
+        s_framebuffer[(size_t)physical_y * RM67162_WIDTH + physical_x] = data[i];
+        cursor++;
+        x++;
+        if (x > s_window_x1) {
+            x = s_window_x0;
+            y++;
+        }
+    }
+    s_window_cursor = cursor;
 }
 
 static esp_err_t reg_write(uint8_t cmd, const uint8_t *data, size_t len)
@@ -219,6 +283,8 @@ void rm67162_set_rotation(uint8_t r)
             s_height = RM67162_HEIGHT;
             break;
     }
+    s_window_valid = false;
+    s_window_cursor = 0;
     reg_write(0x36, &s_madctl, 1);
 }
 
@@ -239,6 +305,14 @@ uint16_t rm67162_get_height(void)
 
 void rm67162_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 {
+    s_window_x0 = x0;
+    s_window_y0 = y0;
+    s_window_x1 = x1;
+    s_window_y1 = y1;
+    s_window_cursor = 0;
+    s_window_valid = x0 <= x1 && y0 <= y1 &&
+                     x1 < s_width && y1 < s_height;
+
     uint8_t col[4] = { (uint8_t)(x0 >> 8), (uint8_t)x0, (uint8_t)(x1 >> 8), (uint8_t)x1 };
     uint8_t row[4] = { (uint8_t)(y0 >> 8), (uint8_t)y0, (uint8_t)(y1 >> 8), (uint8_t)y1 };
     reg_write(0x2A, col, 4);
@@ -249,6 +323,8 @@ void rm67162_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 void rm67162_push_pixels(const uint16_t *data, uint32_t len)
 {
     const uint16_t *p = data;
+
+    framebuffer_push_pixels(data, len);
 
     cs_low();
     dc_data();
@@ -262,6 +338,78 @@ void rm67162_push_pixels(const uint16_t *data, uint32_t len)
         p += chunk;
     }
     cs_high();
+}
+
+esp_err_t rm67162_framebuffer_enable(bool enable)
+{
+    if (!enable) {
+        if (s_framebuffer != NULL) {
+            heap_caps_free(s_framebuffer);
+            s_framebuffer = NULL;
+        }
+        s_window_valid = false;
+        s_window_cursor = 0;
+        return ESP_OK;
+    }
+
+    if (s_framebuffer != NULL) {
+        return ESP_OK;
+    }
+
+    size_t size = (size_t)RM67162_WIDTH * RM67162_HEIGHT * sizeof(uint16_t);
+    s_framebuffer = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_framebuffer == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    memset(s_framebuffer, 0, size);
+    s_window_valid = false;
+    s_window_cursor = 0;
+    return ESP_OK;
+}
+
+bool rm67162_framebuffer_enabled(void)
+{
+    return s_framebuffer != NULL;
+}
+
+size_t rm67162_framebuffer_size(void)
+{
+    return (size_t)s_width * s_height * sizeof(uint16_t);
+}
+
+esp_err_t rm67162_capture_row(uint16_t y, uint16_t *dest, size_t pixels)
+{
+    if (s_framebuffer == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (dest == NULL || y >= s_height || pixels != s_width) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    for (uint16_t x = 0; x < s_width; x++) {
+        dest[x] = framebuffer_get_logical_pixel(x, y);
+    }
+    return ESP_OK;
+}
+
+esp_err_t rm67162_capture(void *dest, size_t len)
+{
+    if (s_framebuffer == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (dest == NULL || len != rm67162_framebuffer_size()) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint16_t *pixels = dest;
+    for (uint16_t y = 0; y < s_height; y++) {
+        esp_err_t err = rm67162_capture_row(
+            y, pixels + ((size_t)y * s_width), s_width);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    return ESP_OK;
 }
 
 void rm67162_fill_rect(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t color)
