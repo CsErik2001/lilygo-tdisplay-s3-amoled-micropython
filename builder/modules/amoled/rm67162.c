@@ -340,6 +340,34 @@ void rm67162_push_pixels(const uint16_t *data, uint32_t len)
     cs_high();
 }
 
+void rm67162_push_gray4(const uint8_t *data, uint32_t len)
+{
+    uint32_t cursor = 0;
+
+    cs_low();
+    dc_data();
+    while (cursor < len) {
+        size_t chunk = len - cursor > SEND_BUF_PIXELS ?
+                       SEND_BUF_PIXELS : len - cursor;
+        for (size_t i = 0; i < chunk; i++) {
+            uint32_t pixel = cursor + i;
+            uint8_t packed = data[pixel >> 1];
+            uint8_t shade4 = (pixel & 1) ? packed & 0x0f : packed >> 4;
+            uint8_t gray = (uint8_t)(shade4 * 17);
+            s_txbuf[i] = (uint16_t)(((gray & 0xf8) << 8) |
+                                    ((gray & 0xfc) << 3) |
+                                    (gray >> 3));
+        }
+        framebuffer_push_pixels(s_txbuf, chunk);
+        for (size_t i = 0; i < chunk; i++) {
+            s_txbuf[i] = swap16(s_txbuf[i]);
+        }
+        spi_write(s_txbuf, chunk * sizeof(uint16_t));
+        cursor += chunk;
+    }
+    cs_high();
+}
+
 esp_err_t rm67162_framebuffer_enable(bool enable)
 {
     if (!enable) {

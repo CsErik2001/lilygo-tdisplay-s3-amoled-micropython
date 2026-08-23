@@ -253,8 +253,7 @@ static mp_obj_t display_text(size_t n_args, const mp_obj_t *args) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(display_text_obj, 5, 7, display_text);
 
 static mp_obj_t display_blit(size_t n_args, const mp_obj_t *args) {
-    // self, buffer (bytes/bytearray of native-endian RGB565 words), x0, y0, x1, y1
-    (void)n_args;
+    // self, buffer (native-endian RGB565), x0, y0, x1, y1, [byte_offset]
     mp_buffer_info_t buf;
     mp_get_buffer_raise(args[1], &buf, MP_BUFFER_READ);
     int x0 = mp_obj_get_int(args[2]);
@@ -267,14 +266,52 @@ static mp_obj_t display_blit(size_t n_args, const mp_obj_t *args) {
     }
     size_t expected = (size_t)(x1 - x0 + 1) * (y1 - y0 + 1) *
                       sizeof(uint16_t);
-    if (buf.len != expected) {
+    mp_int_t offset_arg = n_args >= 7 ? mp_obj_get_int(args[6]) : 0;
+    if (offset_arg < 0 || (offset_arg & 1) != 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("blit offset must be a non-negative even byte count"));
+    }
+    size_t offset = (size_t)offset_arg;
+    if (offset > buf.len || expected > buf.len - offset ||
+        (n_args < 7 && buf.len != expected)) {
         mp_raise_ValueError(MP_ERROR_TEXT("blit buffer has wrong size"));
     }
     rm67162_set_window((uint16_t)x0, (uint16_t)y0, (uint16_t)x1, (uint16_t)y1);
-    rm67162_push_pixels((const uint16_t *)buf.buf, buf.len / 2);
+    const uint8_t *pixels = (const uint8_t *)buf.buf + offset;
+    rm67162_push_pixels((const uint16_t *)pixels, expected / 2);
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(display_blit_obj, 6, 6, display_blit);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(display_blit_obj, 6, 7, display_blit);
+
+static mp_obj_t display_blit_gray4(size_t n_args, const mp_obj_t *args) {
+    // self, packed grayscale, x0, y0, x1, y1, [byte_offset]
+    mp_buffer_info_t buf;
+    mp_get_buffer_raise(args[1], &buf, MP_BUFFER_READ);
+    int x0 = mp_obj_get_int(args[2]);
+    int y0 = mp_obj_get_int(args[3]);
+    int x1 = mp_obj_get_int(args[4]);
+    int y1 = mp_obj_get_int(args[5]);
+    if (x1 < x0 || y1 < y0 || x0 < 0 || y0 < 0 ||
+        x1 >= rm67162_get_width() || y1 >= rm67162_get_height()) {
+        mp_raise_ValueError(MP_ERROR_TEXT("gray4 blit outside display"));
+    }
+    size_t pixels = (size_t)(x1 - x0 + 1) * (y1 - y0 + 1);
+    size_t expected = (pixels + 1) / 2;
+    mp_int_t offset_arg = n_args >= 7 ? mp_obj_get_int(args[6]) : 0;
+    if (offset_arg < 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("gray4 blit offset must be non-negative"));
+    }
+    size_t offset = (size_t)offset_arg;
+    if (offset > buf.len || expected > buf.len - offset ||
+        (n_args < 7 && buf.len != expected)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("gray4 blit buffer has wrong size"));
+    }
+    rm67162_set_window((uint16_t)x0, (uint16_t)y0, (uint16_t)x1, (uint16_t)y1);
+    const uint8_t *packed = (const uint8_t *)buf.buf + offset;
+    rm67162_push_gray4(packed, pixels);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    display_blit_gray4_obj, 6, 7, display_blit_gray4);
 
 static mp_obj_t file_open(mp_obj_t path, const char *mode)
 {
@@ -528,6 +565,7 @@ static const mp_rom_map_elem_t display_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_fill_rect),  MP_ROM_PTR(&display_fill_rect_obj) },
     { MP_ROM_QSTR(MP_QSTR_text),       MP_ROM_PTR(&display_text_obj) },
     { MP_ROM_QSTR(MP_QSTR_blit),       MP_ROM_PTR(&display_blit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_blit_gray4), MP_ROM_PTR(&display_blit_gray4_obj) },
     { MP_ROM_QSTR(MP_QSTR_draw_image), MP_ROM_PTR(&display_draw_image_obj) },
     { MP_ROM_QSTR(MP_QSTR_WIDTH),      MP_ROM_INT(RM67162_WIDTH) },
     { MP_ROM_QSTR(MP_QSTR_HEIGHT),     MP_ROM_INT(RM67162_HEIGHT) },

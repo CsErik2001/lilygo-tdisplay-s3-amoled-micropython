@@ -12,9 +12,12 @@ frozen `amoled_ui` widget toolkit.
 - `examples/draw/main.py` - drawing palette, RTC clock, and side-button demo
 - `examples/widgets/main.py` - input, keyboard, button, switch, checkbox, and slider demo
 - `examples/sandbox.py` - widget playground including `ProgressBar`
+- `examples/face/` - 24-state animated Bloub face pack with real-device telemetry
 - `examples/wifi/` - Wi-Fi selection and password-entry flow
 - `builder/` - Docker firmware builder, board definition, and native drivers
 - `tools/image_to_bin.py` - PNG/JPG to AMG0 RGB565 converter
+- `tools/bloub_svg_to_assets.py` - animated Bloub SVG pack converter
+- `tools/generate_system_faces.py` - drawn AI lifecycle-state generator
 
 ## Hardware and software
 
@@ -34,8 +37,10 @@ firmware:
 
 ```bash
 esptool --chip esp32s3 -p /dev/cu.usbmodem101 -b 460800 --before default-reset \
-  --after hard-reset write-flash -z --flash-mode dio --flash-freq 80m \
+  --after no-reset write-flash -z --flash-mode dio --flash-freq 80m \
   0x0 firmware/firmware.bin
+esptool --chip esp32s3 -p /dev/cu.usbmodem101 --before no-reset \
+  --after watchdog-reset run
 ```
 
 Upload and start the drawing demo:
@@ -53,6 +58,11 @@ mpremote connect /dev/cu.usbmodem101 cp examples/widgets/main.py :main.py
 
 # Full widget playground, including ProgressBar
 mpremote connect /dev/cu.usbmodem101 cp examples/sandbox.py :main.py
+
+# Animated 24-state face benchmark
+mpremote connect /dev/cu.usbmodem101 cp examples/face/assets/face_base.rgb565 :face_base.rgb565
+mpremote connect /dev/cu.usbmodem101 cp -r examples/face/assets/faces :
+mpremote connect /dev/cu.usbmodem101 cp examples/face/main.py :main.py
 
 # Wi-Fi demo: connect_wifi.py remains a filesystem module
 mpremote connect /dev/cu.usbmodem101 cp examples/wifi/connect_wifi.py :connect_wifi.py
@@ -80,6 +90,10 @@ If an old firmware left an incompatible filesystem, erase and flash again:
 ```bash
 esptool --chip esp32s3 -p /dev/cu.usbmodem101 erase-flash
 ```
+
+The separate watchdog reset is intentional. On tested native USB-JTAG boards,
+a DTR/RTS hard reset can sample the boot strap as download mode and leave the
+chip at `waiting for download` instead of starting MicroPython.
 
 ## Native `amoled` API
 
@@ -127,6 +141,9 @@ d.text("HELLO", x, y, color, scale)
 d.text("HELLO", x, y, color, scale, background)
 
 d.blit(buffer, x0, y0, x1, y1)
+d.blit(buffer, x0, y0, x1, y1, byte_offset)
+d.blit_gray4(buffer, x0, y0, x1, y1)
+d.blit_gray4(buffer, x0, y0, x1, y1, byte_offset)
 d.draw_image("image.bin", x, y)
 d.draw_image("raw.bin", x, y, width, height)
 
@@ -167,9 +184,16 @@ Drawing bounds behavior:
 - `pixel()`, `line()`, `rect()`, and `text()` skip off-screen pixels safely.
 - `blit()` and `draw_image()` require the complete target rectangle/image to
   fit on screen and raise `ValueError` otherwise.
-- A `blit()` buffer must contain exactly
+- Without an offset, a `blit()` buffer must contain exactly
   `(x1 - x0 + 1) * (y1 - y0 + 1)` little-endian RGB565 words, or twice that
   number of bytes; a different size raises `ValueError`.
+- With the optional byte offset, `blit()` reads the target rectangle from that
+  position inside a larger buffer without copying it. The offset must be a
+  non-negative even number and the complete rectangle must fit after it.
+- `blit_gray4()` uses the same rectangle and optional-offset rules for packed
+  4-bit grayscale pixels. The first pixel occupies the high nibble, each shade
+  expands from `0..15` to `0..255`, and a final low nibble is ignored for an
+  odd-sized rectangle.
 
 `brightness()` writes an 8-bit hardware register directly; it does not clamp
 or validate its argument. Pass values in the documented `0..255` range.
