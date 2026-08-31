@@ -22,11 +22,6 @@ void rm67162_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
 // rm67162_set_window first.
 void rm67162_push_pixels(const uint16_t *data, uint32_t len);
 
-// Expand packed 4-bit grayscale pixels and push them to the active window.
-// The first pixel is stored in the high nibble. A trailing low nibble is
-// ignored when the window contains an odd number of pixels.
-void rm67162_push_gray4(const uint8_t *data, uint32_t len);
-
 // Optional RGB565 shadow framebuffer. The backing allocation lives in PSRAM
 // and stores pixels in the panel's physical 536x240 coordinate space so its
 // contents remain valid when MADCTL rotation changes. Captures are exported
