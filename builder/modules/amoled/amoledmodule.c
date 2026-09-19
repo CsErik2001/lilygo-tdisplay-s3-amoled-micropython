@@ -29,6 +29,7 @@
 #include "py/stream.h"
 #include <stdbool.h>
 #include <errno.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include "rm67162.h"
@@ -938,6 +939,396 @@ MP_DEFINE_CONST_OBJ_TYPE(
     );
 
 // ---------------------------------------------------------------------
+// Retained-framebuffer asset renderers
+//
+// Display-independent RGB565 helpers ported from the Waveshare 1.75C
+// driver: anti-aliased stroked arcs plus opaque / A4-alpha image and
+// font-glyph compositing into caller-owned framebuffers. The Python-side
+// Canvas and TAGGIE asset loader use these; the panel transfer itself
+// stays in rm67162.c (`Display.blit`).
+// ---------------------------------------------------------------------
+
+static float arc_normalize_angle(float angle) {
+    angle = fmodf(angle, 360.0f);
+    return angle < 0.0f ? angle + 360.0f : angle;
+}
+
+static bool arc_angle_inside(float angle, float start, float sweep) {
+    if (sweep >= 360.0f) {
+        return true;
+    }
+    float delta = arc_normalize_angle(angle - start);
+    return delta <= sweep;
+}
+
+static bool arc_vector_inside(float x, float y,
+                              float start_x, float start_y,
+                              float end_x, float end_y, float sweep) {
+    if (sweep >= 360.0f) {
+        return true;
+    }
+    float after_start = start_x * y - start_y * x;
+    float before_end = x * end_y - y * end_x;
+    if (sweep <= 180.0f) {
+        return after_start >= 0.0f && before_end >= 0.0f;
+    }
+    return after_start >= 0.0f || before_end >= 0.0f;
+}
+
+static uint16_t arc_blend_rgb565(uint16_t background, uint16_t foreground,
+                                 unsigned int coverage) {
+    if (coverage >= 4) {
+        return foreground;
+    }
+    unsigned int inverse = 4 - coverage;
+    unsigned int r = ((((foreground >> 11) & 0x1f) * coverage) +
+                      (((background >> 11) & 0x1f) * inverse) + 2) >> 2;
+    unsigned int g = ((((foreground >> 5) & 0x3f) * coverage) +
+                      (((background >> 5) & 0x3f) * inverse) + 2) >> 2;
+    unsigned int b = (((foreground & 0x1f) * coverage) +
+                      ((background & 0x1f) * inverse) + 2) >> 2;
+    return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+static mp_obj_t module_fill_arc(size_t n_args, const mp_obj_t *args) {
+    mp_buffer_info_t buffer;
+    mp_get_buffer_raise(args[0], &buffer, MP_BUFFER_WRITE);
+
+    int width = mp_obj_get_int(args[1]);
+    int height = mp_obj_get_int(args[2]);
+    float cx = mp_obj_get_float(args[3]);
+    float cy = mp_obj_get_float(args[4]);
+    float radius = mp_obj_get_float(args[5]);
+    float start = mp_obj_get_float(args[6]);
+    float end = mp_obj_get_float(args[7]);
+    int color_value = mp_obj_get_int(args[8]);
+    float thickness = mp_obj_get_float(args[9]);
+    bool round_caps = n_args >= 11 && mp_obj_is_true(args[10]);
+
+    if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid framebuffer dimensions"));
+    }
+    size_t required = (size_t)width * (size_t)height * sizeof(uint16_t);
+    if (buffer.len < required) {
+        mp_raise_ValueError(MP_ERROR_TEXT("RGB565 buffer is too small"));
+    }
+    if (!(radius > 0.0f) || !(thickness > 0.0f)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("radius and thickness must be positive"));
+    }
+    if (color_value < 0 || color_value > 0xffff) {
+        mp_raise_ValueError(MP_ERROR_TEXT("color must be 0..65535"));
+    }
+
+    float raw_sweep = end - start;
+    while (raw_sweep < 0.0f) {
+        raw_sweep += 360.0f;
+    }
+    float sweep = raw_sweep > 360.0f ? 360.0f : raw_sweep;
+    if (!(sweep > 0.0f)) {
+        return mp_const_none;
+    }
+    start = arc_normalize_angle(start);
+
+    const float degrees_to_radians = 0.01745329251994329577f;
+    float half = thickness * 0.5f;
+    float inner = radius - half;
+    if (inner < 0.0f) {
+        inner = 0.0f;
+    }
+    float outer = radius + half;
+    float inner_squared = inner * inner;
+    float outer_squared = outer * outer;
+
+    // A stroked arc's bounds are the centerline arc expanded by half its
+    // thickness. Including the cardinal points keeps partial redraws tight.
+    float start_radians = start * degrees_to_radians;
+    float end_radians = (start + sweep) * degrees_to_radians;
+    float start_vector_x = sinf(start_radians);
+    float start_vector_y = -cosf(start_radians);
+    float end_vector_x = sinf(end_radians);
+    float end_vector_y = -cosf(end_radians);
+    float start_x = cx + radius * start_vector_x;
+    float start_y = cy + radius * start_vector_y;
+    float end_x = cx + radius * end_vector_x;
+    float end_y = cy + radius * end_vector_y;
+    float min_x = start_x < end_x ? start_x : end_x;
+    float max_x = start_x > end_x ? start_x : end_x;
+    float min_y = start_y < end_y ? start_y : end_y;
+    float max_y = start_y > end_y ? start_y : end_y;
+    const float cardinals[4] = {0.0f, 90.0f, 180.0f, 270.0f};
+    for (size_t i = 0; i < 4; ++i) {
+        if (!arc_angle_inside(cardinals[i], start, sweep)) {
+            continue;
+        }
+        float angle = cardinals[i] * degrees_to_radians;
+        float x = cx + radius * sinf(angle);
+        float y = cy - radius * cosf(angle);
+        if (x < min_x) min_x = x;
+        if (x > max_x) max_x = x;
+        if (y < min_y) min_y = y;
+        if (y > max_y) max_y = y;
+    }
+
+    float margin = half + 1.0f;
+    int x0 = (int)floorf(min_x - margin);
+    int y0 = (int)floorf(min_y - margin);
+    int x1 = (int)ceilf(max_x + margin);
+    int y1 = (int)ceilf(max_y + margin);
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 >= width) x1 = width - 1;
+    if (y1 >= height) y1 = height - 1;
+    if (x0 > x1 || y0 > y1) {
+        return mp_const_none;
+    }
+
+    float start_cap_x = start_x;
+    float start_cap_y = start_y;
+    float end_cap_x = end_x;
+    float end_cap_y = end_y;
+    float cap_squared = half * half;
+    uint16_t foreground = (uint16_t)color_value;
+    uint16_t *pixels = (uint16_t *)buffer.buf;
+    const float samples[2] = {-0.25f, 0.25f};
+    float reject_inner = inner > 0.5f ? inner - 0.5f : 0.0f;
+    float reject_outer = outer + 0.5f;
+    float reject_inner_squared = reject_inner * reject_inner;
+    float reject_outer_squared = reject_outer * reject_outer;
+
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            float center_dx = (float)x - cx;
+            float center_dy = (float)y - cy;
+            float center_distance_squared =
+                center_dx * center_dx + center_dy * center_dy;
+            if (center_distance_squared < reject_inner_squared ||
+                center_distance_squared > reject_outer_squared) {
+                continue;
+            }
+            unsigned int coverage = 0;
+            for (size_t sy = 0; sy < 2; ++sy) {
+                for (size_t sx = 0; sx < 2; ++sx) {
+                    float sample_x = (float)x + samples[sx];
+                    float sample_y = (float)y + samples[sy];
+                    float dx = sample_x - cx;
+                    float dy = sample_y - cy;
+                    float distance_squared = dx * dx + dy * dy;
+                    bool inside = false;
+
+                    if (distance_squared >= inner_squared &&
+                        distance_squared <= outer_squared) {
+                        inside = arc_vector_inside(
+                            dx, dy,
+                            start_vector_x, start_vector_y,
+                            end_vector_x, end_vector_y, sweep);
+                    }
+                    if (!inside && round_caps && sweep < 360.0f) {
+                        float cap_dx = sample_x - start_cap_x;
+                        float cap_dy = sample_y - start_cap_y;
+                        inside = cap_dx * cap_dx + cap_dy * cap_dy <= cap_squared;
+                        if (!inside) {
+                            cap_dx = sample_x - end_cap_x;
+                            cap_dy = sample_y - end_cap_y;
+                            inside = cap_dx * cap_dx + cap_dy * cap_dy <= cap_squared;
+                        }
+                    }
+                    coverage += inside ? 1 : 0;
+                }
+            }
+
+            if (coverage != 0) {
+                size_t index = (size_t)y * (size_t)width + (size_t)x;
+                pixels[index] = arc_blend_rgb565(
+                    pixels[index], foreground, coverage);
+            }
+        }
+    }
+
+    mp_obj_t bounds[4] = {
+        mp_obj_new_int(x0), mp_obj_new_int(y0),
+        mp_obj_new_int(x1), mp_obj_new_int(y1),
+    };
+    return mp_obj_new_tuple(4, bounds);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    module_fill_arc_obj, 10, 11, module_fill_arc);
+
+static uint16_t blend_rgb565_a4(uint16_t background, uint16_t foreground,
+                                unsigned int alpha) {
+    if (alpha == 0) {
+        return background;
+    }
+    if (alpha >= 15) {
+        return foreground;
+    }
+    unsigned int inverse = 15 - alpha;
+    unsigned int r = ((((foreground >> 11) & 0x1f) * alpha) +
+                      (((background >> 11) & 0x1f) * inverse) + 7) / 15;
+    unsigned int g = ((((foreground >> 5) & 0x3f) * alpha) +
+                      (((background >> 5) & 0x3f) * inverse) + 7) / 15;
+    unsigned int b = (((foreground & 0x1f) * alpha) +
+                      ((background & 0x1f) * inverse) + 7) / 15;
+    return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+static void asset_validate_surface(const mp_buffer_info_t *buffer,
+                                   int width, int height) {
+    if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid framebuffer dimensions"));
+    }
+    size_t required = (size_t)width * (size_t)height * sizeof(uint16_t);
+    if (buffer->len < required) {
+        mp_raise_ValueError(MP_ERROR_TEXT("RGB565 buffer is too small"));
+    }
+}
+
+static void asset_validate_bounds(int canvas_width, int canvas_height,
+                                  int source_width, int source_height,
+                                  int x, int y) {
+    if (source_width <= 0 || source_height <= 0 || x < 0 || y < 0 ||
+        x + source_width > canvas_width || y + source_height > canvas_height) {
+        mp_raise_ValueError(MP_ERROR_TEXT("asset outside framebuffer"));
+    }
+}
+
+static mp_obj_t asset_bounds(int x, int y, int width, int height) {
+    mp_obj_t bounds[4] = {
+        mp_obj_new_int(x), mp_obj_new_int(y),
+        mp_obj_new_int(x + width - 1), mp_obj_new_int(y + height - 1),
+    };
+    return mp_obj_new_tuple(4, bounds);
+}
+
+static mp_obj_t module_blit_rgb565(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+    mp_buffer_info_t destination;
+    mp_buffer_info_t source;
+    mp_get_buffer_raise(args[0], &destination, MP_BUFFER_WRITE);
+    int canvas_width = mp_obj_get_int(args[1]);
+    int canvas_height = mp_obj_get_int(args[2]);
+    mp_get_buffer_raise(args[3], &source, MP_BUFFER_READ);
+    int source_width = mp_obj_get_int(args[4]);
+    int source_height = mp_obj_get_int(args[5]);
+    int x = mp_obj_get_int(args[6]);
+    int y = mp_obj_get_int(args[7]);
+
+    asset_validate_surface(&destination, canvas_width, canvas_height);
+    asset_validate_bounds(canvas_width, canvas_height, source_width,
+                          source_height, x, y);
+    size_t row_bytes = (size_t)source_width * sizeof(uint16_t);
+    if (source.len < row_bytes * (size_t)source_height) {
+        mp_raise_ValueError(MP_ERROR_TEXT("RGB565 asset is too small"));
+    }
+
+    uint8_t *dest = (uint8_t *)destination.buf;
+    const uint8_t *src = (const uint8_t *)source.buf;
+    size_t dest_stride = (size_t)canvas_width * sizeof(uint16_t);
+    for (int row = 0; row < source_height; ++row) {
+        memcpy(dest + ((size_t)(y + row) * dest_stride) +
+                       (size_t)x * sizeof(uint16_t),
+               src + (size_t)row * row_bytes, row_bytes);
+    }
+    return asset_bounds(x, y, source_width, source_height);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    module_blit_rgb565_obj, 8, 8, module_blit_rgb565);
+
+static mp_obj_t module_blend_a4(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+    mp_buffer_info_t destination;
+    mp_buffer_info_t mask;
+    mp_get_buffer_raise(args[0], &destination, MP_BUFFER_WRITE);
+    int canvas_width = mp_obj_get_int(args[1]);
+    int canvas_height = mp_obj_get_int(args[2]);
+    mp_get_buffer_raise(args[3], &mask, MP_BUFFER_READ);
+    int mask_width = mp_obj_get_int(args[4]);
+    int mask_height = mp_obj_get_int(args[5]);
+    int x = mp_obj_get_int(args[6]);
+    int y = mp_obj_get_int(args[7]);
+    int color_value = mp_obj_get_int(args[8]);
+
+    asset_validate_surface(&destination, canvas_width, canvas_height);
+    asset_validate_bounds(canvas_width, canvas_height, mask_width,
+                          mask_height, x, y);
+    size_t pixel_count = (size_t)mask_width * (size_t)mask_height;
+    if (mask.len < (pixel_count + 1) / 2) {
+        mp_raise_ValueError(MP_ERROR_TEXT("A4 mask is too small"));
+    }
+    if (color_value < 0 || color_value > 0xffff) {
+        mp_raise_ValueError(MP_ERROR_TEXT("color must be 0..65535"));
+    }
+
+    uint16_t *dest = (uint16_t *)destination.buf;
+    const uint8_t *alpha = (const uint8_t *)mask.buf;
+    uint16_t foreground = (uint16_t)color_value;
+    for (int row = 0; row < mask_height; ++row) {
+        for (int column = 0; column < mask_width; ++column) {
+            size_t source_index = (size_t)row * (size_t)mask_width + column;
+            uint8_t packed = alpha[source_index >> 1];
+            unsigned int coverage = (source_index & 1) ?
+                (packed & 0x0f) : (packed >> 4);
+            if (coverage != 0) {
+                size_t dest_index = (size_t)(y + row) *
+                    (size_t)canvas_width + (size_t)(x + column);
+                dest[dest_index] = blend_rgb565_a4(
+                    dest[dest_index], foreground, coverage);
+            }
+        }
+    }
+    return asset_bounds(x, y, mask_width, mask_height);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    module_blend_a4_obj, 9, 9, module_blend_a4);
+
+static mp_obj_t module_blend_rgb565_a4(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+    mp_buffer_info_t destination;
+    mp_buffer_info_t source;
+    mp_buffer_info_t mask;
+    mp_get_buffer_raise(args[0], &destination, MP_BUFFER_WRITE);
+    int canvas_width = mp_obj_get_int(args[1]);
+    int canvas_height = mp_obj_get_int(args[2]);
+    mp_get_buffer_raise(args[3], &source, MP_BUFFER_READ);
+    mp_get_buffer_raise(args[4], &mask, MP_BUFFER_READ);
+    int source_width = mp_obj_get_int(args[5]);
+    int source_height = mp_obj_get_int(args[6]);
+    int x = mp_obj_get_int(args[7]);
+    int y = mp_obj_get_int(args[8]);
+
+    asset_validate_surface(&destination, canvas_width, canvas_height);
+    asset_validate_bounds(canvas_width, canvas_height, source_width,
+                          source_height, x, y);
+    size_t pixel_count = (size_t)source_width * (size_t)source_height;
+    if (source.len < pixel_count * sizeof(uint16_t)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("RGB565 asset is too small"));
+    }
+    if (mask.len < (pixel_count + 1) / 2) {
+        mp_raise_ValueError(MP_ERROR_TEXT("A4 mask is too small"));
+    }
+
+    uint16_t *dest = (uint16_t *)destination.buf;
+    const uint16_t *src = (const uint16_t *)source.buf;
+    const uint8_t *alpha = (const uint8_t *)mask.buf;
+    for (int row = 0; row < source_height; ++row) {
+        for (int column = 0; column < source_width; ++column) {
+            size_t source_index = (size_t)row * (size_t)source_width + column;
+            uint8_t packed = alpha[source_index >> 1];
+            unsigned int coverage = (source_index & 1) ?
+                (packed & 0x0f) : (packed >> 4);
+            if (coverage != 0) {
+                size_t dest_index = (size_t)(y + row) *
+                    (size_t)canvas_width + (size_t)(x + column);
+                dest[dest_index] = blend_rgb565_a4(
+                    dest[dest_index], src[source_index], coverage);
+            }
+        }
+    }
+    return asset_bounds(x, y, source_width, source_height);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    module_blend_rgb565_a4_obj, 9, 9, module_blend_rgb565_a4);
+
+// ---------------------------------------------------------------------
 // Module
 // ---------------------------------------------------------------------
 
@@ -974,6 +1365,11 @@ static const mp_rom_map_elem_t amoled_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_RTC),      MP_ROM_PTR(&amoled_rtc_type) },
     { MP_ROM_QSTR(MP_QSTR_PMU),      MP_ROM_PTR(&amoled_pmu_type) },
     { MP_ROM_QSTR(MP_QSTR_rgb),       MP_ROM_PTR(&module_rgb_obj) },
+    { MP_ROM_QSTR(MP_QSTR_fill_arc),  MP_ROM_PTR(&module_fill_arc_obj) },
+    { MP_ROM_QSTR(MP_QSTR_blit_rgb565), MP_ROM_PTR(&module_blit_rgb565_obj) },
+    { MP_ROM_QSTR(MP_QSTR_blend_a4), MP_ROM_PTR(&module_blend_a4_obj) },
+    { MP_ROM_QSTR(MP_QSTR_blend_rgb565_a4),
+      MP_ROM_PTR(&module_blend_rgb565_a4_obj) },
     { MP_ROM_QSTR(MP_QSTR_scan_i2c),  MP_ROM_PTR(&module_scan_i2c_obj) },
     { MP_ROM_QSTR(MP_QSTR_WIDTH),     MP_ROM_INT(RM67162_WIDTH) },
     { MP_ROM_QSTR(MP_QSTR_HEIGHT),    MP_ROM_INT(RM67162_HEIGHT) },

@@ -1,0 +1,304 @@
+{
+  "fonts": [
+    {
+      "input": "/System/Library/Fonts/SFCompact.ttf",
+      "output": "assets_tgi/ui_title.tgf",
+      "size": 24,
+      "style": "Semibold",
+      "charset": "latin-hungarian"
+    },
+    {
+      "input": "/System/Library/Fonts/SFCompact.ttf",
+      "output": "assets_tgi/ui_body.tgf",
+      "size": 20,
+      "style": "Regular",
+      "charset": "latin-hungarian"
+    },
+    {
+      "input": "/System/Library/Fonts/SFCompact.ttf",
+      "output": "assets_tgi/ui_value.tgf",
+      "size": 44,
+      "style": "Semibold",
+      "charset": "latin-hungarian"
+    },
+    {
+      "input": "/System/Library/Fonts/SFCompact.ttf",
+      "output": "assets_tgi/ui_detail.tgf",
+      "size": 15,
+      "style": "Regular",
+      "charset": "latin-hungarian"
+    }
+  ],
+  "images": [
+    {
+      "input": "assets_src/mascot_idle.png",
+      "output": "assets_tgi/mascot_idle.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_idle2.png",
+      "output": "assets_tgi/mascot_idle2.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_idle3.png",
+      "output": "assets_tgi/mascot_idle3.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_idle4.png",
+      "output": "assets_tgi/mascot_idle4.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_idle5.png",
+      "output": "assets_tgi/mascot_idle5.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_idle6.png",
+      "output": "assets_tgi/mascot_idle6.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_sleep.png",
+      "output": "assets_tgi/mascot_sleep.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_work0.png",
+      "output": "assets_tgi/mascot_work0.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_work1.png",
+      "output": "assets_tgi/mascot_work1.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_work2.png",
+      "output": "assets_tgi/mascot_work2.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_work3.png",
+      "output": "assets_tgi/mascot_work3.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_work4.png",
+      "output": "assets_tgi/mascot_work4.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_work5.png",
+      "output": "assets_tgi/mascot_work5.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_stress0.png",
+      "output": "assets_tgi/mascot_stress0.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_stress1.png",
+      "output": "assets_tgi/mascot_stress1.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_dead.png",
+      "output": "assets_tgi/mascot_dead.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_stress3.png",
+      "output": "assets_tgi/mascot_stress3.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_stress4.png",
+      "output": "assets_tgi/mascot_stress4.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_stress5.png",
+      "output": "assets_tgi/mascot_stress5.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_stress6.png",
+      "output": "assets_tgi/mascot_stress6.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_stress7.png",
+      "output": "assets_tgi/mascot_stress7.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_think0.png",
+      "output": "assets_tgi/mascot_think0.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_think.png",
+      "output": "assets_tgi/mascot_think.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_think2.png",
+      "output": "assets_tgi/mascot_think2.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_think3.png",
+      "output": "assets_tgi/mascot_think3.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_think4.png",
+      "output": "assets_tgi/mascot_think4.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_think5.png",
+      "output": "assets_tgi/mascot_think5.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_spin0.png",
+      "output": "assets_tgi/mascot_spin0.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_spin1.png",
+      "output": "assets_tgi/mascot_spin1.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_spin2.png",
+      "output": "assets_tgi/mascot_spin2.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_spin3.png",
+      "output": "assets_tgi/mascot_spin3.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_spin4.png",
+      "output": "assets_tgi/mascot_spin4.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_spin5.png",
+      "output": "assets_tgi/mascot_spin5.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_spin6.png",
+      "output": "assets_tgi/mascot_spin6.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_spin7.png",
+      "output": "assets_tgi/mascot_spin7.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_wave0.png",
+      "output": "assets_tgi/mascot_wave0.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_wave1.png",
+      "output": "assets_tgi/mascot_wave1.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_wave2.png",
+      "output": "assets_tgi/mascot_wave2.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_wave3.png",
+      "output": "assets_tgi/mascot_wave3.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_happy.png",
+      "output": "assets_tgi/mascot_happy.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_jump0.png",
+      "output": "assets_tgi/mascot_jump0.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_jump1.png",
+      "output": "assets_tgi/mascot_jump1.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_jump2.png",
+      "output": "assets_tgi/mascot_jump2.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_jump3.png",
+      "output": "assets_tgi/mascot_jump3.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    },
+    {
+      "input": "assets_src/mascot_jump4.png",
+      "output": "assets_tgi/mascot_jump4.tgi",
+      "resize": "96x104",
+      "format": "rgb565"
+    }
+  ]
+}

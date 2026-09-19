@@ -41,9 +41,13 @@ COPY builder/boards/LILYGO_TDISPLAY_S3_AMOLED_PLUS \
      ${MICROPY_DIR}/ports/esp32/boards/LILYGO_TDISPLAY_S3_AMOLED_PLUS
 COPY builder/modules/amoled ${MICROPY_DIR}/ports/esp32/modules/amoled
 
-# Freeze the repository's UI module through the board manifest.
+# Freeze the repository's UI modules through the board manifest.
 COPY amoled_ui.py \
      ${MICROPY_DIR}/ports/esp32/boards/LILYGO_TDISPLAY_S3_AMOLED_PLUS/modules/amoled_ui.py
+COPY amoled_assets.py \
+     ${MICROPY_DIR}/ports/esp32/boards/LILYGO_TDISPLAY_S3_AMOLED_PLUS/modules/amoled_assets.py
+COPY amoled_canvas.py \
+     ${MICROPY_DIR}/ports/esp32/boards/LILYGO_TDISPLAY_S3_AMOLED_PLUS/modules/amoled_canvas.py
 
 WORKDIR ${MICROPY_DIR}/ports/esp32
 
